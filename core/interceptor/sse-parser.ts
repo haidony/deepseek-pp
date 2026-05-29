@@ -41,6 +41,10 @@ export function parseSSEData(data: string): unknown | null {
 }
 
 export function isResponseTextPatchPath(path: unknown): path is string {
+  return isTextPatchPath(path) && isResponsePatchPath(path);
+}
+
+function isTextPatchPath(path: unknown): path is string {
   if (typeof path !== 'string') return false;
   const lastSegment = path.split('/').pop();
   return (
@@ -49,6 +53,10 @@ export function isResponseTextPatchPath(path: unknown): path is string {
     lastSegment === 'markdown' ||
     lastSegment === 'delta'
   );
+}
+
+function isResponsePatchPath(path: unknown): path is string {
+  return typeof path === 'string' && (path === 'response' || path.startsWith('response/'));
 }
 
 export function isThinkingPatchPath(path: unknown): path is string {
@@ -74,11 +82,11 @@ export function extractTextFromParsed(parsed: any): string | null {
     return parsed.v;
   }
   // Format 3: {"p":"response/fragments/-1/content", "v":"text"} — text/content patch (no "o" field)
-  if (isResponseTextPatchPath(parsed.p) && typeof parsed.v === 'string' && !parsed.o) {
+  if (isTextPatchPath(parsed.p) && typeof parsed.v === 'string' && !parsed.o) {
     return parsed.v;
   }
   // Format 4: {"p":"response/fragments", "o":"APPEND", "v":[{content:"text",...}]} — new fragment with initial content
-  if (parsed.p === 'response/fragments' && parsed.o === 'APPEND' && Array.isArray(parsed.v)) {
+  if (isFragmentsAppendPatch(parsed)) {
     const text = parsed.v
       .map((frag: unknown) => extractFragmentText(frag))
       .filter((part: string | null): part is string => part !== null)
@@ -86,6 +94,44 @@ export function extractTextFromParsed(parsed: any): string | null {
     return text.length > 0 ? text : null;
   }
   return null;
+}
+
+export function extractResponseTextFromParsed(parsed: any): string | null {
+  if (parsed?.o === 'BATCH' && Array.isArray(parsed.v)) {
+    const text = parsed.v
+      .map((item: unknown) => extractResponseTextFromParsed(item))
+      .filter((part: string | null): part is string => part !== null)
+      .join('');
+    return text.length > 0 ? text : null;
+  }
+  if (!parsed.p && typeof parsed.v === 'string') {
+    return parsed.v;
+  }
+  if (isResponseTextPatchPath(parsed.p) && parsed.o === 'APPEND' && typeof parsed.v === 'string') {
+    return parsed.v;
+  }
+  if (isResponseTextPatchPath(parsed.p) && typeof parsed.v === 'string' && !parsed.o) {
+    return parsed.v;
+  }
+  if (isResponseFragmentsAppendPatch(parsed)) {
+    const text = parsed.v
+      .map((frag: unknown) => extractFragmentText(frag))
+      .filter((part: string | null): part is string => part !== null)
+      .join('');
+    return text.length > 0 ? text : null;
+  }
+  return null;
+}
+
+function isFragmentsAppendPatch(parsed: any): boolean {
+  return typeof parsed?.p === 'string' &&
+    parsed.p.endsWith('/fragments') &&
+    parsed.o === 'APPEND' &&
+    Array.isArray(parsed.v);
+}
+
+function isResponseFragmentsAppendPatch(parsed: any): boolean {
+  return parsed?.p === 'response/fragments' && parsed.o === 'APPEND' && Array.isArray(parsed.v);
 }
 
 function extractFragmentText(fragment: unknown): string | null {

@@ -1,6 +1,6 @@
 import { DEEPSEEK_API_URL, DPP_MANAGED_AGENT_PROMPT_MARKER, PRESET_REINJECTION_INTERVAL } from '../constants';
 import type { Memory, ModelType, SystemPromptPreset, ToolCall, ToolCallRestoreRecord, ToolDescriptor } from '../types';
-import { buildPromptAugmentation } from '../prompt';
+import { buildPromptAugmentation, sanitizeInternalPromptText } from '../prompt';
 import { parseSkillCommand } from '../skill/parser';
 import { SHELL_TOOL_NAMES } from '../shell/contracts';
 import {
@@ -12,7 +12,7 @@ import {
   type ToolInvocationCatalog,
 } from '../tool';
 import { estimateTokenUnits } from '../token/estimator';
-import { extractTextFromParsed, isResponseTextPatchPath, isStreamFinishedFromParsed, isThinkingPatchPath, parseSSEChunk, parseSSEData } from './sse-parser';
+import { extractResponseTextFromParsed, isResponseTextPatchPath, isStreamFinishedFromParsed, isThinkingPatchPath, parseSSEChunk, parseSSEData } from './sse-parser';
 import { extractToolCalls, stripToolCalls } from './tool-parser';
 
 const COMPLETION_PATH = new URL(DEEPSEEK_API_URL).pathname;
@@ -359,7 +359,7 @@ function isFragmentCreationPatch(parsed: any): boolean {
 
 function getDirectPatchText(parsed: any): string | null {
   if (!parsed?.p && typeof parsed?.v === 'string') return parsed.v;
-  if (parsed?.p && parsed.o === 'APPEND' && typeof parsed.v === 'string') return parsed.v;
+  if (isResponseTextPatchPath(parsed?.p) && parsed.o === 'APPEND' && typeof parsed.v === 'string') return parsed.v;
   if (isResponseTextPatchPath(parsed?.p) && typeof parsed.v === 'string' && !parsed.o) {
     return parsed.v;
   }
@@ -379,7 +379,7 @@ function setDirectPatchText(parsed: any, value: string) {
     parsed.v = value;
     return;
   }
-  if (parsed?.p && parsed.o === 'APPEND' && typeof parsed.v === 'string') {
+  if (isResponseTextPatchPath(parsed?.p) && parsed.o === 'APPEND' && typeof parsed.v === 'string') {
     parsed.v = value;
     return;
   }
@@ -415,6 +415,116 @@ function setDirectPatchText(parsed: any, value: string) {
 
 function shouldEmitSanitizedTextPatch(parsed: any): boolean {
   return isBatchPatch(parsed) || isFragmentCreationPatch(parsed);
+}
+
+function isAnyFragmentCreationPatch(parsed: any): boolean {
+  return typeof parsed?.p === 'string' &&
+    parsed.p.endsWith('/fragments') &&
+    parsed.o === 'APPEND' &&
+    Array.isArray(parsed.v);
+}
+
+function isResponsePatch(parsed: any): boolean {
+  if (!parsed || typeof parsed !== 'object') return false;
+  if (!parsed.p) return true;
+  return typeof parsed.p === 'string' && (parsed.p === 'response' || parsed.p.startsWith('response/'));
+}
+
+function getAnyDirectPatchText(parsed: any): string | null {
+  if (!parsed?.p && typeof parsed?.v === 'string') return parsed.v;
+  if (parsed?.p && parsed.o === 'APPEND' && typeof parsed.v === 'string') return parsed.v;
+  if (typeof parsed?.p === 'string' && typeof parsed.v === 'string' && !parsed.o) {
+    const lastSegment = parsed.p.split('/').pop();
+    if (lastSegment === 'content' || lastSegment === 'text' || lastSegment === 'markdown' || lastSegment === 'delta') {
+      return parsed.v;
+    }
+  }
+  if (isAnyFragmentCreationPatch(parsed)) {
+    const parts: string[] = [];
+    for (const frag of parsed.v) {
+      if (frag && typeof frag.content === 'string') parts.push(frag.content);
+      else if (frag && typeof frag.text === 'string') parts.push(frag.text);
+    }
+    return parts.length > 0 ? parts.join('') : null;
+  }
+  return null;
+}
+
+function setAnyDirectPatchText(parsed: any, value: string) {
+  if (!parsed?.p && typeof parsed?.v === 'string') {
+    parsed.v = value;
+    return;
+  }
+  if (parsed?.p && parsed.o === 'APPEND' && typeof parsed.v === 'string') {
+    parsed.v = value;
+    return;
+  }
+  if (typeof parsed?.p === 'string' && typeof parsed.v === 'string' && !parsed.o) {
+    parsed.v = value;
+    return;
+  }
+  if (isAnyFragmentCreationPatch(parsed)) {
+    let remaining = value;
+    for (let i = 0; i < parsed.v.length; i++) {
+      const frag = parsed.v[i];
+      if (!frag) continue;
+      if (typeof frag.content === 'string') {
+        if (i === parsed.v.length - 1) {
+          frag.content = remaining;
+        } else {
+          const portion = remaining.slice(0, frag.content.length);
+          remaining = remaining.slice(frag.content.length);
+          frag.content = portion;
+        }
+      } else if (typeof frag.text === 'string') {
+        if (i === parsed.v.length - 1) {
+          frag.text = remaining;
+        } else {
+          const portion = remaining.slice(0, frag.text.length);
+          remaining = remaining.slice(frag.text.length);
+          frag.text = portion;
+        }
+      }
+    }
+  }
+}
+
+function cloneParsedWithSanitizedInternalPrompt(parsed: any, visiblePrompt: string): any | null {
+  const cloned = JSON.parse(JSON.stringify(parsed));
+  let changed = false;
+
+  const apply = (node: any) => {
+    if (!node || typeof node !== 'object') return;
+
+    if (isBatchPatch(node)) {
+      for (const item of node.v) {
+        apply(item);
+      }
+      return;
+    }
+
+    const text = getAnyDirectPatchText(node);
+    if (text === null) return;
+
+    const isResponseText = isResponsePatch(node);
+    const sanitized = sanitizeInternalPromptText(text, isResponseText ? undefined : visiblePrompt);
+    if (sanitized === text) return;
+
+    setAnyDirectPatchText(node, isResponseText ? '' : sanitized);
+    changed = true;
+  };
+
+  apply(cloned);
+
+  return changed ? cloned : null;
+}
+
+function extractCleanResponseTextForParsing(parsed: unknown): string | null {
+  const text = extractResponseTextFromParsed(parsed);
+  if (!text) return text;
+
+  const sanitized = sanitizeInternalPromptText(text);
+  return sanitized === text ? text : '';
 }
 
 function collectAssistantMessageId(parsed: unknown, current: number | null): number | null {
@@ -568,6 +678,7 @@ function cloneParsedWithTextSuffix(parsed: any, skipChars: number): any | null {
 class XmlToolStreamFilter {
   private catalog: ToolInvocationCatalog;
   private toolOpenTags: string[];
+  private visiblePrompt: string;
   private state: 'NORMAL' | 'SUPPRESSING' = 'NORMAL';
   private currentTool: string | null = null;
   private pendingText = '';
@@ -575,8 +686,9 @@ class XmlToolStreamFilter {
   private chunkBuffer = '';
   private encoder = new TextEncoder();
 
-  constructor(descriptors: readonly ToolDescriptor[] = DEFAULT_TOOL_DESCRIPTORS) {
+  constructor(descriptors: readonly ToolDescriptor[] = DEFAULT_TOOL_DESCRIPTORS, visiblePrompt: string = '') {
     this.catalog = createToolInvocationCatalog(descriptors);
+    this.visiblePrompt = visiblePrompt;
     // Always recognize shell tool names for filtering, even if not in descriptors
     for (const name of SHELL_TOOL_NAMES) {
       if (!this.catalog.invocationNames.includes(name)) {
@@ -622,15 +734,18 @@ class XmlToolStreamFilter {
         continue;
       }
 
-      const text = extractTextFromParsed(parsed);
+      const sanitizedParsed = cloneParsedWithSanitizedInternalPrompt(parsed, this.visiblePrompt);
+      const effectiveParsed = sanitizedParsed ?? parsed;
+      const effectiveBlock = sanitizedParsed ? 'data: ' + JSON.stringify(sanitizedParsed) : block;
+      const text = extractResponseTextFromParsed(effectiveParsed);
       if (text === null) {
-        // Non-text event — always pass through
-        this.emit(controller, block);
+        // Non-response events, including request-message echoes, pass through after prompt cleanup.
+        this.emit(controller, effectiveBlock);
         continue;
       }
 
       // Determine if this event is a "structural" one (fragment creation) that must pass through
-      const isFragmentCreation = isFragmentCreationPatch(parsed);
+      const isFragmentCreation = isFragmentCreationPatch(effectiveParsed);
 
       // Text event — apply state machine
       if (this.state === 'SUPPRESSING') {
@@ -641,7 +756,7 @@ class XmlToolStreamFilter {
         if (closeIdx !== -1) {
           const tailStart = closeIdx + closeTag.length;
           const tailOffsetInCurrentText = tailStart - previousPendingLength;
-          const toolTail = this.getCurrentToolTail(parsed, text, isFragmentCreation, tailOffsetInCurrentText);
+          const toolTail = this.getCurrentToolTail(effectiveParsed, text, isFragmentCreation, tailOffsetInCurrentText);
           this.state = 'NORMAL';
           this.pendingText = '';
           this.currentTool = null;
@@ -650,8 +765,8 @@ class XmlToolStreamFilter {
           }
           continue;
         }
-        if (isFragmentCreation || isBatchPatch(parsed)) {
-          const modified = cloneParsedWithTextPrefix(parsed, 0);
+        if (isFragmentCreation || isBatchPatch(effectiveParsed)) {
+          const modified = cloneParsedWithTextPrefix(effectiveParsed, 0);
           if (modified) {
             this.emit(controller, 'data: ' + JSON.stringify(modified));
           }
@@ -660,7 +775,7 @@ class XmlToolStreamFilter {
       }
 
       // State: NORMAL
-      this.processNormalTextBlock(controller, block, parsed, text, isFragmentCreation);
+      this.processNormalTextBlock(controller, effectiveBlock, effectiveParsed, text, isFragmentCreation);
     }
   }
 
@@ -725,7 +840,7 @@ class XmlToolStreamFilter {
     const modified = cloneParsedWithTextSuffix(parsed, Math.max(0, tailOffsetInCurrentText));
     if (!modified) return null;
 
-    const modifiedText = extractTextFromParsed(modified);
+    const modifiedText = extractResponseTextFromParsed(modified);
     if (!modifiedText) return null;
 
     return {
@@ -782,7 +897,7 @@ class XmlToolStreamFilter {
     let charsSeen = 0;
 
     for (const entry of this.pendingBlocks) {
-      const text = extractTextFromParsed(entry.parsed);
+      const text = extractResponseTextFromParsed(entry.parsed);
       if (text === null) {
         this.emit(controller, entry.block);
         continue;
@@ -814,7 +929,7 @@ async function interceptFetchResponse(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   const toolDescriptors = hookState.toolDescriptors;
-  const filter = new XmlToolStreamFilter(toolDescriptors);
+  const filter = new XmlToolStreamFilter(toolDescriptors, requestContext.originalPrompt);
   let fullText = '';
   let notifiedCount = 0;
   let textAccBuffer = '';
@@ -832,7 +947,7 @@ async function interceptFetchResponse(
     for (const event of events) {
       const parsed = parseSSEData(event.data);
       if (!parsed) continue;
-      const eventText = extractTextFromParsed(parsed);
+      const eventText = extractCleanResponseTextForParsing(parsed);
       if (eventText) {
         fullText += eventText;
         speedTracker.append(eventText);
@@ -861,7 +976,7 @@ async function interceptFetchResponse(
               for (const event of events) {
                 const parsed = parseSSEData(event.data);
                 if (!parsed) continue;
-                const eventText = extractTextFromParsed(parsed);
+                const eventText = extractCleanResponseTextForParsing(parsed);
                 if (eventText) {
                   fullText += eventText;
                   speedTracker.append(eventText);
@@ -934,7 +1049,7 @@ function setupXHRResponseInterceptor(xhr: XMLHttpRequest, requestContext: Reques
   let filteredResponse = '';
   let assistantMessageId: number | null = null;
   const toolDescriptors = hookState.toolDescriptors;
-  const filter = new XmlToolStreamFilter(toolDescriptors);
+  const filter = new XmlToolStreamFilter(toolDescriptors, requestContext.originalPrompt);
   const speedTracker = createResponseTokenSpeedTracker();
 
   const finalizeIfNeeded = () => {
@@ -974,7 +1089,7 @@ function setupXHRResponseInterceptor(xhr: XMLHttpRequest, requestContext: Reques
         for (const event of events) {
           const parsed = parseSSEData(event.data);
           if (!parsed) continue;
-          const text = extractTextFromParsed(parsed);
+          const text = extractCleanResponseTextForParsing(parsed);
           if (text) {
             fullText += text;
             speedTracker.append(text);
@@ -1108,6 +1223,34 @@ function collectToolCallRestoreRecord(text: string, key: string): ToolCallRestor
   };
 }
 
+function sanitizeStoredMessageInternalPrompt(msg: any) {
+  if (!msg || typeof msg !== 'object') return;
+
+  if (typeof msg.content === 'string') {
+    msg.content = sanitizeInternalPromptText(msg.content);
+  }
+
+  if (!Array.isArray(msg.fragments)) return;
+
+  const textFragments = msg.fragments
+    .filter((frag: any) => frag && typeof frag.content === 'string');
+
+  if (textFragments.length === 0) return;
+
+  const joined = textFragments.map((frag: any) => frag.content).join('');
+  const sanitizedJoined = sanitizeInternalPromptText(joined);
+  if (sanitizedJoined !== joined) {
+    textFragments.forEach((frag: any, index: number) => {
+      frag.content = index === 0 ? sanitizedJoined : '';
+    });
+    return;
+  }
+
+  for (const frag of textFragments) {
+    frag.content = sanitizeInternalPromptText(frag.content);
+  }
+}
+
 function stripToolCallsFromHistory(json: any) {
   if (!json || !json.data) return;
   const data = json.data.biz_data || json.data;
@@ -1121,6 +1264,7 @@ function stripToolCallsFromHistory(json: any) {
   }
 
   visibleMessages.forEach((msg: any, index: number) => {
+    sanitizeStoredMessageInternalPrompt(msg);
     const messageKey = getMessageRestoreKey(msg, index);
     if (typeof msg.content === 'string' && hasToolCallMarker(msg.content)) {
       const record = collectToolCallRestoreRecord(msg.content, `${messageKey}:content`);
@@ -1228,6 +1372,7 @@ function stripSingleIDBRecord(record: any, restoredRecords: ToolCallRestoreRecor
   }
 
   visibleMessages.forEach((msg: any, index: number) => {
+    sanitizeStoredMessageInternalPrompt(msg);
     const messageKey = getMessageRestoreKey(msg, index);
     if (typeof msg.content === 'string' && hasToolCallMarker(msg.content)) {
       const record = collectToolCallRestoreRecord(msg.content, `${messageKey}:content`);

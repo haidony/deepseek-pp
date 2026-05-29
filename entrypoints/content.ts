@@ -17,6 +17,7 @@ import { normalizePetConfig } from '../core/pet/config';
 import { DEFAULT_TOOL_DESCRIPTORS, createToolInvocationCatalog } from '../core/tool/invocation';
 import { normalizeBackgroundConfig } from '../core/background/config';
 import { stripToolCalls } from '../core/interceptor/tool-parser';
+import { containsInternalPromptMarker, sanitizeInternalPromptText } from '../core/prompt';
 import { SHELL_TOOL_NAMES } from '../core/shell';
 import type { ResponseCompletePayload, ResponseTokenSpeedPayload } from '../core/interceptor/fetch-hook';
 import type {
@@ -2015,20 +2016,20 @@ function startRenderedToolCallCleaner() {
   schedule();
 
   const observer = new MutationObserver((mutations) => {
-    if (mutations.some(mutationMayContainToolMarker)) {
+    if (mutations.some(mutationMayContainCleanableText)) {
       schedule();
     }
   });
   observer.observe(document.body, { childList: true, subtree: true, characterData: true });
 }
 
-function mutationMayContainToolMarker(mutation: MutationRecord): boolean {
+function mutationMayContainCleanableText(mutation: MutationRecord): boolean {
   if (mutation.type === 'characterData') {
-    return containsToolMarker(mutation.target.textContent);
+    return containsCleanableText(mutation.target.textContent);
   }
 
   for (const node of mutation.addedNodes) {
-    if (containsToolMarker(node.textContent)) {
+    if (containsCleanableText(node.textContent)) {
       return true;
     }
   }
@@ -2038,6 +2039,10 @@ function mutationMayContainToolMarker(mutation: MutationRecord): boolean {
 
 function containsToolMarker(text: string | null | undefined): boolean {
   return typeof text === 'string' && toolMarkerRe.test(text);
+}
+
+function containsCleanableText(text: string | null | undefined): boolean {
+  return typeof text === 'string' && (containsToolMarker(text) || containsInternalPromptMarker(text));
 }
 
 function cleanRenderedToolCalls() {
@@ -2061,7 +2066,7 @@ function getToolCleanupRoots(): Element[] {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
     if (roots.has(message)) continue;
-    if (containsToolMarker(message.textContent)) {
+    if (containsCleanableText(message.textContent)) {
       roots.add(message);
     }
   }
@@ -2070,7 +2075,7 @@ function getToolCleanupRoots(): Element[] {
 }
 
 function stripToolCallTextNodes(root: Element) {
-  if (!containsToolMarker(root.textContent)) return;
+  if (!containsCleanableText(root.textContent)) return;
 
   const textNodes: Text[] = [];
   const changedParents = new Set<HTMLElement>();
@@ -2098,15 +2103,16 @@ function stripToolCallTextNodes(root: Element) {
 
   for (const textNode of textNodes) {
     const original = textNode.nodeValue ?? '';
+    const sanitizedOriginal = sanitizeInternalPromptText(original);
     let cursor = 0;
     let next = '';
 
-    while (cursor < original.length) {
+    while (cursor < sanitizedOriginal.length) {
       if (activeTool) {
         const closeRe = new RegExp(`<\\s*/\\s*${escapeRegExp(activeTool)}\\s*>`, 'i');
-        const closeMatch = closeRe.exec(original.slice(cursor));
+        const closeMatch = closeRe.exec(sanitizedOriginal.slice(cursor));
         if (!closeMatch) {
-          cursor = original.length;
+          cursor = sanitizedOriginal.length;
           break;
         }
         cursor += closeMatch.index + closeMatch[0].length;
@@ -2114,13 +2120,13 @@ function stripToolCallTextNodes(root: Element) {
         continue;
       }
 
-      const openMatch = toolOpenTagRe.exec(original.slice(cursor));
+      const openMatch = toolOpenTagRe.exec(sanitizedOriginal.slice(cursor));
       if (!openMatch) {
-        next += original.slice(cursor);
+        next += sanitizedOriginal.slice(cursor);
         break;
       }
 
-      next += original.slice(cursor, cursor + openMatch.index);
+      next += sanitizedOriginal.slice(cursor, cursor + openMatch.index);
       activeTool = openMatch[1];
       cursor += openMatch.index + openMatch[0].length;
     }

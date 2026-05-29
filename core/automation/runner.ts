@@ -1,6 +1,6 @@
 import { DEEPSEEK_API_URL } from '../constants';
 import {
-  extractTextFromParsed,
+  extractResponseTextFromParsed,
   isStreamFinishedFromParsed,
   parseSSEChunk,
   parseSSEData,
@@ -490,7 +490,7 @@ function consumeSSEText(text: string, summary: StreamSummary) {
     const parsed = parseSSEData(event.data);
     if (!parsed) continue;
 
-    const eventText = extractTextFromParsed(parsed);
+    const eventText = extractResponseTextFromParsed(parsed);
     if (eventText) summary.assistantText += eventText;
     if (isStreamFinishedFromParsed(parsed)) summary.finished = true;
     collectMessageIds(parsed, summary);

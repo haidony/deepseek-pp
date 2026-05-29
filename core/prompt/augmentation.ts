@@ -9,6 +9,7 @@ import {
   type ToolInvocationCatalog,
 } from '../tool';
 import { estimateTokens, formatMemoriesBlock, getMemoryBudget, selectMemories } from '../memory/selector';
+import { markVisibleUserPrompt } from './visibility';
 
 export interface PromptAugmentationOptions {
   memories?: readonly Memory[];
@@ -49,7 +50,7 @@ export function buildPromptAugmentation(
   const toolReminder = renderToolFormatReminder(toolDescriptors);
 
   return {
-    augmented: presetPrefix + system + originalPrompt + toolReminder,
+    augmented: presetPrefix + system + markVisibleUserPrompt(originalPrompt) + toolReminder,
     usedMemoryIds: selected.map((memory) => memory.id!).filter(Boolean),
     renderedToolCount: toolDescriptors.length,
   };
