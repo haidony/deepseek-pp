@@ -62,6 +62,24 @@ import { getWebToolSettings, setWebToolEnabled } from '../core/tool/web-settings
 import { getAllScenarios, applyScenarioTemplate } from '../core/scenario/store';
 import { getChatEnabled } from '../core/chat/store';
 import {
+  createAutomation,
+  deleteAutomation,
+  getAllAutomations,
+  getAutomationById,
+  getAutomationRuns,
+  setAutomationStatus,
+  updateAutomation,
+} from '../core/automation/store';
+import { runDeepSeekAutomation } from '../core/automation/runner';
+import {
+  AUTOMATION_WAKE_ALARM_NAME,
+  AUTOMATION_WAKE_INTERVAL_MINUTES,
+  refreshAutomationNextRunAt,
+  runAutomation,
+  scanDueAutomations,
+} from '../core/automation/scheduler';
+import { validateAutomationSchedule } from '../core/automation/schedule';
+import {
   createChatSession,
   createPowHeaders,
   submitPromptStreaming,
@@ -72,6 +90,7 @@ import { extractToolCalls } from '../core/interceptor/tool-parser';
 import type { WebSearchToolName } from '../core/tool/web-search';
 import type { BackgroundConfig, DeepSeekTheme, GitHubSkillImportRequest, GitHubSkillSource, Memory, ModelType, NewMemory, PetConfig, Skill, SyncConfig, SyncCounts, SystemPromptPreset, ToolCall, ToolDescriptor, ToolExecutionRecord, ToolResult } from '../core/types';
 import type { McpServerCreateInput, McpServerUpdateInput } from '../core/mcp/types';
+import type { AutomationCreateInput, AutomationRunnerRequest, AutomationRunnerResult, AutomationStatus, AutomationUpdateInput } from '../core/automation/types';
 
 const DEEPSEEK_HOME_URL = 'https://chat.deepseek.com/';
 let chatSessionId: string | null = null;
@@ -89,10 +108,13 @@ type SyncDataSnapshot = {
 
 export default defineBackground(() => {
   enableSidePanelActionClick();
+  registerAutomationAlarmListener();
 
   archiveStaleMemories().catch((error) => reportBackgroundStartupError('archive_stale_memories_failed', error));
   ensureShellMcpPreset().catch((error) => reportBackgroundStartupError('shell_mcp_preset_failed', error));
   createContextMenus().catch((error) => reportBackgroundStartupError('context_menus_failed', error));
+  ensureAutomationWakeAlarm().catch((error) => reportBackgroundStartupError('automation_alarm_create_failed', error));
+  scanDueAutomationsFromWake().catch((error) => reportBackgroundStartupError('automation_startup_scan_failed', error));
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleMessage(message, sender)
@@ -107,6 +129,19 @@ export default defineBackground(() => {
     }
   });
 });
+
+function registerAutomationAlarmListener() {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name !== AUTOMATION_WAKE_ALARM_NAME) return;
+    scanDueAutomationsFromWake().catch((error) => reportBackgroundStartupError('automation_alarm_scan_failed', error));
+  });
+}
+
+async function ensureAutomationWakeAlarm() {
+  await chrome.alarms.create(AUTOMATION_WAKE_ALARM_NAME, {
+    periodInMinutes: AUTOMATION_WAKE_INTERVAL_MINUTES,
+  });
+}
 
 function enableSidePanelActionClick() {
   if (import.meta.env.FIREFOX) return;
@@ -650,6 +685,56 @@ async function handleMessage(
       return { ok: true };
     }
 
+    case 'GET_AUTOMATIONS':
+      return getAllAutomations();
+
+    case 'GET_AUTOMATION_RUNS': {
+      const { automationId, limit } = message.payload as { automationId: string; limit?: number };
+      return getAutomationRuns({ automationId, limit });
+    }
+
+    case 'CREATE_AUTOMATION': {
+      const input = message.payload as AutomationCreateInput;
+      validateAutomationInput(input);
+      const automation = await createAutomation(input);
+      const refreshed = await refreshAutomationNextRunAt(automation.id);
+      await broadcastAutomationUpdate(sender.tab?.id);
+      return refreshed ?? automation;
+    }
+
+    case 'UPDATE_AUTOMATION': {
+      const { id, patch } = message.payload as { id: string; patch: AutomationUpdateInput };
+      validateAutomationPatch(patch);
+      const automation = await updateAutomation(id, patch);
+      if (!automation) return { ok: false, error: 'automation_not_found' };
+      const refreshed = await refreshAutomationNextRunAt(id);
+      await broadcastAutomationUpdate(sender.tab?.id);
+      return refreshed ?? automation;
+    }
+
+    case 'SET_AUTOMATION_STATUS': {
+      const { id, status } = message.payload as { id: string; status: AutomationStatus };
+      if (!isAutomationStatus(status)) return { ok: false, error: 'invalid_automation_status' };
+      const automation = await setAutomationStatus(id, status);
+      if (!automation) return { ok: false, error: 'automation_not_found' };
+      const refreshed = await refreshAutomationNextRunAt(id);
+      await broadcastAutomationUpdate(sender.tab?.id);
+      return refreshed ?? automation;
+    }
+
+    case 'DELETE_AUTOMATION': {
+      const { id } = message.payload as { id: string };
+      await deleteAutomation(id);
+      await broadcastAutomationUpdate(sender.tab?.id);
+      await broadcastAutomationRunsUpdate(sender.tab?.id);
+      return { ok: true };
+    }
+
+    case 'RUN_AUTOMATION_NOW': {
+      const { id } = message.payload as { id: string };
+      return runAutomationNow(id, sender.tab?.id);
+    }
+
     case 'SCENARIOS_UPDATED':
       await createContextMenus();
       return { ok: true };
@@ -707,6 +792,100 @@ async function broadcastToolDescriptorsUpdate(excludeTabId?: number) {
 
 async function broadcastToolCallHistoryUpdate(excludeTabId?: number) {
   await broadcastToTabs({ type: 'TOOL_CALL_HISTORY_UPDATED' }, excludeTabId);
+}
+
+async function broadcastAutomationUpdate(excludeTabId?: number) {
+  const automations = await getAllAutomations();
+  await broadcastToTabs({ type: 'AUTOMATIONS_UPDATED', automations }, excludeTabId);
+}
+
+async function broadcastAutomationRunsUpdate(excludeTabId?: number) {
+  await broadcastToTabs({ type: 'AUTOMATION_RUNS_UPDATED' }, excludeTabId);
+}
+
+async function scanDueAutomationsFromWake() {
+  const result = await scanDueAutomations(executeAutomationWithContext);
+  if (result.initialized > 0 || result.started > 0 || result.failed > 0) {
+    await broadcastAutomationUpdate();
+  }
+  if (result.started > 0 || result.failed > 0) {
+    await broadcastAutomationRunsUpdate();
+    await broadcastToolCallHistoryUpdate();
+  }
+  return result;
+}
+
+async function runAutomationNow(id: string, excludeTabId?: number) {
+  const automation = await getAutomationById(id);
+  if (!automation) return { ok: false, error: 'automation_not_found' };
+
+  const run = await runAutomation({
+    automationId: id,
+    trigger: 'manual',
+    scheduledFor: null,
+    executor: executeAutomationWithContext,
+  });
+
+  await broadcastAutomationUpdate(excludeTabId);
+  await broadcastAutomationRunsUpdate(excludeTabId);
+  await broadcastToolCallHistoryUpdate(excludeTabId);
+
+  return run ?? { ok: false, error: 'automation_already_running' };
+}
+
+async function executeAutomationWithContext(
+  request: AutomationRunnerRequest,
+): Promise<AutomationRunnerResult> {
+  const [memories, activePreset, toolDescriptors] = await Promise.all([
+    getAllMemories(),
+    getActivePreset(),
+    getRuntimeToolDescriptors(),
+  ]);
+  const enabledDescriptors = toolDescriptors.filter((descriptor) => descriptor.execution.enabled);
+
+  return runDeepSeekAutomation({
+    ...request,
+    promptContext: {
+      memories,
+      presetContent: activePreset?.content ?? null,
+      toolDescriptors: enabledDescriptors,
+    },
+  }, {
+    executeToolCall: (call) => executeRuntimeToolCall(call, 'automation'),
+  });
+}
+
+function validateAutomationInput(input: AutomationCreateInput) {
+  if (!input || typeof input !== 'object') throw new Error('Invalid automation input');
+  validateNonEmptyString(input.name, 'Automation name');
+  validateNonEmptyString(input.prompt, 'Automation prompt');
+  validateAutomationScheduleInput(input.schedule);
+}
+
+function validateAutomationPatch(patch: AutomationUpdateInput) {
+  if (!patch || typeof patch !== 'object') throw new Error('Invalid automation patch');
+  if (patch.name !== undefined) validateNonEmptyString(patch.name, 'Automation name');
+  if (patch.prompt !== undefined) validateNonEmptyString(patch.prompt, 'Automation prompt');
+  if (patch.status !== undefined && !isAutomationStatus(patch.status)) {
+    throw new Error('Invalid automation status');
+  }
+  if (patch.schedule !== undefined) validateAutomationScheduleInput(patch.schedule);
+}
+
+function validateAutomationScheduleInput(schedule: AutomationCreateInput['schedule']) {
+  if (!schedule || typeof schedule !== 'object') throw new Error('Invalid automation schedule');
+  const result = validateAutomationSchedule(schedule);
+  if (!result.ok) throw new Error(result.error.message);
+}
+
+function validateNonEmptyString(value: unknown, label: string) {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`${label} is required`);
+  }
+}
+
+function isAutomationStatus(status: unknown): status is AutomationStatus {
+  return status === 'active' || status === 'paused' || status === 'archived';
 }
 
 async function getLocalSyncDataSnapshot(): Promise<SyncDataSnapshot> {
