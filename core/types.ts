@@ -131,6 +131,8 @@ export interface Skill {
   metadata?: Record<string, string>;
 }
 
+export type SaveSkillPayload = Skill | { skill: Skill; previousName?: string };
+
 export interface SkillInvocation {
   skillName: string;
   args: string;
@@ -192,7 +194,7 @@ export type MessageAction =
   | { type: 'SAVE_MEMORY'; payload: NewMemory }
   | { type: 'DELETE_MEMORY'; payload: { id: number } }
   | { type: 'UPDATE_MEMORY'; payload: Memory }
-  | { type: 'SAVE_SKILL'; payload: Skill }
+  | { type: 'SAVE_SKILL'; payload: SaveSkillPayload }
   | { type: 'DELETE_SKILL'; payload: { name: string } }
   | { type: 'GET_PRESETS' }
   | { type: 'SAVE_PRESET'; payload: SystemPromptPreset }

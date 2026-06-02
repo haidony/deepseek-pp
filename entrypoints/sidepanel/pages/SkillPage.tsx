@@ -3,7 +3,14 @@ import type { Skill } from '../../../core/types';
 import SkillCard from '../components/SkillCard';
 import SkillForm from '../components/SkillForm';
 
-function SkillSection({ title, skills, onDelete }: { title: string; skills: Skill[]; onDelete?: (name: string) => void }) {
+interface SkillSectionProps {
+  title: string;
+  skills: Skill[];
+  onEdit?: (skill: Skill) => void;
+  onDelete?: (name: string) => void;
+}
+
+function SkillSection({ title, skills, onEdit, onDelete }: SkillSectionProps) {
   if (skills.length === 0) return null;
   return (
     <div className="space-y-2">
@@ -11,7 +18,12 @@ function SkillSection({ title, skills, onDelete }: { title: string; skills: Skil
         {title}
       </h3>
       {skills.map((s) => (
-        <SkillCard key={s.name} skill={s} onDelete={onDelete ? () => onDelete(s.name) : undefined} />
+        <SkillCard
+          key={s.name}
+          skill={s}
+          onEdit={onEdit ? () => onEdit(s) : undefined}
+          onDelete={onDelete ? () => onDelete(s.name) : undefined}
+        />
       ))}
     </div>
   );
@@ -20,6 +32,7 @@ function SkillSection({ title, skills, onDelete }: { title: string; skills: Skil
 export default function SkillPage() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
 
   const load = async () => {
     const list: Skill[] = await chrome.runtime.sendMessage({ type: 'GET_SKILLS' });
@@ -28,15 +41,34 @@ export default function SkillPage() {
 
   useEffect(() => { load(); }, []);
 
+  const closeForm = () => {
+    setShowForm(false);
+    setEditingSkill(null);
+  };
+
+  const handleCreate = () => {
+    setEditingSkill(null);
+    setShowForm((current) => (editingSkill ? true : !current));
+  };
+
+  const handleEdit = (skill: Skill) => {
+    setEditingSkill(skill);
+    setShowForm(true);
+  };
+
   const handleDelete = async (name: string) => {
     await chrome.runtime.sendMessage({ type: 'DELETE_SKILL', payload: { name } });
-    load();
+    if (editingSkill?.name === name) closeForm();
+    await load();
   };
 
   const handleSave = async (skill: Skill) => {
-    await chrome.runtime.sendMessage({ type: 'SAVE_SKILL', payload: skill });
-    setShowForm(false);
-    load();
+    await chrome.runtime.sendMessage({
+      type: 'SAVE_SKILL',
+      payload: editingSkill ? { skill, previousName: editingSkill.name } : skill,
+    });
+    closeForm();
+    await load();
   };
 
   const builtin = skills.filter((s) => s.source === 'builtin');
@@ -50,7 +82,7 @@ export default function SkillPage() {
           可用 Skill
         </h2>
         <button
-          onClick={() => setShowForm(!showForm)}
+          onClick={handleCreate}
           className="ds-btn-primary px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-all duration-150 flex items-center gap-1"
         >
           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -62,13 +94,13 @@ export default function SkillPage() {
 
       {showForm && (
         <div className="animate-slide-down">
-          <SkillForm onSave={handleSave} onCancel={() => setShowForm(false)} />
+          <SkillForm initialSkill={editingSkill} onSave={handleSave} onCancel={closeForm} />
         </div>
       )}
 
       <SkillSection title="内置" skills={builtin} />
       <SkillSection title="官方" skills={official} />
-      <SkillSection title="自定义" skills={custom} onDelete={handleDelete} />
+      <SkillSection title="自定义" skills={custom} onEdit={handleEdit} onDelete={handleDelete} />
 
       <div className="ds-info-panel rounded-xl p-3.5">
         <p className="text-xs leading-relaxed" style={{ color: 'var(--ds-text-secondary)' }}>

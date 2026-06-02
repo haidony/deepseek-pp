@@ -166,7 +166,9 @@ async function handleMessage(
       return getAllSkills();
 
     case 'SAVE_SKILL': {
-      await saveSkill(message.payload as Skill);
+      const payload = message.payload as Skill | { skill: Skill; previousName?: string };
+      const { skill, previousName } = 'skill' in payload ? payload : { skill: payload, previousName: undefined };
+      await saveSkill(skill, previousName);
       await broadcastStateUpdate(sender.tab?.id);
       return { ok: true };
     }

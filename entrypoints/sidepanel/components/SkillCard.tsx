@@ -3,6 +3,7 @@ import { SVG_PATHS } from '../constants';
 
 interface Props {
   skill: Skill;
+  onEdit?: () => void;
   onDelete?: () => void;
 }
 
@@ -12,8 +13,9 @@ const SOURCE_LABELS: Record<string, { text: string; className: string }> = {
   custom: { text: '自定义', className: 'ds-badge-warning' },
 };
 
-export default function SkillCard({ skill, onDelete }: Props) {
+export default function SkillCard({ skill, onEdit, onDelete }: Props) {
   const badge = SOURCE_LABELS[skill.source];
+  const hasActions = Boolean(onEdit || onDelete);
 
   return (
     <div className="ds-card rounded-xl p-3.5 group">
@@ -28,13 +30,35 @@ export default function SkillCard({ skill, onDelete }: Props) {
             </span>
           )}
         </div>
-        {onDelete && (
-          <button
-            onClick={onDelete}
-            className="ds-text-btn-delete text-[11px] px-2 py-1 rounded-md opacity-0 group-hover:opacity-100 transition-all duration-150"
-          >
-            删除
-          </button>
+        {hasActions && (
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-150">
+            {onEdit && (
+              <button
+                type="button"
+                title="编辑"
+                aria-label={`编辑 ${skill.name}`}
+                onClick={onEdit}
+                className="ds-action-btn ds-action-btn-edit w-7 h-7 rounded-lg flex items-center justify-center"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d={SVG_PATHS.edit} />
+                </svg>
+              </button>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                title="删除"
+                aria-label={`删除 ${skill.name}`}
+                onClick={onDelete}
+                className="ds-action-btn ds-action-btn-delete w-7 h-7 rounded-lg flex items-center justify-center"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d={SVG_PATHS.trash} />
+                </svg>
+              </button>
+            )}
+          </div>
         )}
       </div>
       <p className="text-xs mt-1.5 leading-relaxed" style={{ color: 'var(--ds-text-secondary)' }}>
