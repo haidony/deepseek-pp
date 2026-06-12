@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import React from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -77,6 +78,16 @@ describe('sidepanel navigation', () => {
     expect(container.textContent).toContain('语音输入');
     expect(container.textContent).toContain('朗读回复');
   });
+
+  it('keeps the top navigation from shrinking behind long settings content', () => {
+    const css = readFileSync('entrypoints/sidepanel/style.css', 'utf8');
+    const navBlock = getCssBlock(css, '.side-tabs');
+    const mainBlock = getCssBlock(css, '.ds-app-main');
+
+    expect(navBlock).toContain('flex: 0 0 44px');
+    expect(navBlock).toContain('min-height: 44px');
+    expect(mainBlock).toContain('flex: 1 1 0');
+  });
 });
 
 async function renderApp() {
@@ -102,4 +113,11 @@ function unmountRoot() {
     root = null;
     container.innerHTML = '';
   }
+}
+
+function getCssBlock(css: string, selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = css.match(new RegExp(`${escaped}\\s*\\{(?<body>[^}]*)\\}`));
+  expect(match?.groups?.body).toBeTruthy();
+  return match!.groups!.body;
 }
