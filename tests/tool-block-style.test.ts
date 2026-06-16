@@ -34,6 +34,35 @@ describe('content tool block styles', () => {
     expect(source).not.toContain('body.dpp-theme-dark .dpp-tool-block-item { color: rgb(200, 200, 200); }');
   });
 
+  it('mounts inline agent output after DeepSeek final answer content instead of the reasoning block', () => {
+    const path = join(process.cwd(), 'entrypoints/content.ts');
+    const source = readFileSync(path, 'utf8');
+
+    expect(source).toContain("const ASSISTANT_RESPONSE_CONTENT_SELECTOR = '._74c0879, .ds-assistant-message-main-content';");
+    expect(source).toContain('function mountInlineAgentContainer(message: Element, container: HTMLElement): void');
+    expect(source).toContain('inlineAgentContainerObserver.observe(message, { childList: true, subtree: true });');
+    expect(source).not.toContain('inlineAgentContainerObserver.observe(responseHost, { childList: true });');
+  });
+
+  it('scopes task_complete cleanup to assistant body text outside code blocks', () => {
+    const path = join(process.cwd(), 'entrypoints/content.ts');
+    const source = readFileSync(path, 'utf8');
+
+    expect(source).toContain('function shouldReplaceRenderedTaskCompleteBlock(textNode: Text): boolean');
+    expect(source).toContain("if (parent.closest('pre, code')) return false;");
+    expect(source).toContain("const message = parent.closest('.ds-message');");
+    expect(source).toContain('return getAssistantContentHosts(message).some((host) => host.contains(parent));');
+  });
+
+  it('normalizes restored inline-agent traces that predate finalText storage', () => {
+    const path = join(process.cwd(), 'entrypoints/content.ts');
+    const source = readFileSync(path, 'utf8');
+
+    expect(source).toContain("(trace.finalText === undefined || typeof trace.finalText === 'string')");
+    expect(source).toContain("const finalText = typeof trace.finalText === 'string' ? trace.finalText : '';");
+    expect(source).toContain("finalText: clampText(finalText, INLINE_AGENT_FINAL_RENDER_MAX_CHARS) ?? '',");
+  });
+
   it('keeps permission banner text on the same injected theme contract', () => {
     const path = join(process.cwd(), 'entrypoints/content.ts');
     const source = readFileSync(path, 'utf8');

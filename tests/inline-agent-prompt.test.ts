@@ -3,6 +3,7 @@ import {
   buildContinuationPrompt,
   buildFinalizationPrompt,
   buildNudgePrompt,
+  replaceTaskCompleteBlocks,
 } from '../core/inline-agent/prompt';
 import { buildAutomationToolContinuationPrompt } from '../core/automation/runner';
 import type { ToolExecutionRecord } from '../core/types';
@@ -73,6 +74,16 @@ describe('inline-agent model prompts', () => {
     expect(nudge).toContain('<tool_results_so_far>');
     expect(final).toContain('final answer');
     expect(final).toContain('<tool_results>');
+  });
+
+  it('renders task_complete control blocks as their user-visible summary', () => {
+    const text = [
+      'before',
+      '<task_complete>{"summary":"任务已经完成。","artifacts":["demo.html"]}</task_complete>',
+      'after',
+    ].join('\n');
+
+    expect(replaceTaskCompleteBlocks(text)).toBe('before\n任务已经完成。\nafter');
   });
 });
 

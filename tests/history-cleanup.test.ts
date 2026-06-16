@@ -99,6 +99,95 @@ describe('history cleanup', () => {
     });
   });
 
+  it('replaces inline-agent task_complete markers with their summary in restored history', () => {
+    const json = {
+      data: {
+        biz_data: {
+          chat_messages: [
+            {
+              message_id: 39,
+              message_role: 'user',
+              content: [
+                '以下是工具续跑任务刚刚执行的工具结果。请像真正的 Agent 一样继续推进。',
+                '',
+                '<original_task>',
+                '整理回答',
+                '</original_task>',
+                '',
+                '<tool_results>',
+                '[]',
+                '</tool_results>',
+              ].join('\n'),
+            },
+            {
+              message_id: 40,
+              message_role: 'assistant',
+              parent_message_id: 39,
+              content: '<task_complete>{"summary":"回答已经整理完成。","artifacts":[]}</task_complete>',
+            },
+          ],
+        },
+      },
+    };
+
+    stripToolCallsFromHistory(json, {
+      toolDescriptors: createDefaultToolDescriptors(),
+      onToolCallsRestored: () => undefined,
+    });
+
+    expect(json.data.biz_data.chat_messages[0].content).toBe('\u200b');
+    expect(json.data.biz_data.chat_messages[1].content).toBe('回答已经整理完成。');
+  });
+
+  it('preserves user-authored task_complete examples in restored history', () => {
+    const content = '<task_complete>{"summary":"保留原始示例。","artifacts":[]}</task_complete>';
+    const json = {
+      data: {
+        biz_data: {
+          chat_messages: [
+            {
+              message_id: 41,
+              message_role: 'user',
+              content,
+            },
+          ],
+        },
+      },
+    };
+
+    stripToolCallsFromHistory(json, {
+      toolDescriptors: createDefaultToolDescriptors(),
+      onToolCallsRestored: () => undefined,
+    });
+
+    expect(json.data.biz_data.chat_messages[0].content).toBe(content);
+  });
+
+  it('preserves non-inline-agent assistant task_complete examples in restored history', () => {
+    const content = 'Example: <task_complete>{"summary":"保留原始示例。","artifacts":[]}</task_complete>';
+    const json = {
+      data: {
+        biz_data: {
+          chat_messages: [
+            {
+              message_id: 42,
+              message_role: 'assistant',
+              parent_message_id: 41,
+              content,
+            },
+          ],
+        },
+      },
+    };
+
+    stripToolCallsFromHistory(json, {
+      toolDescriptors: createDefaultToolDescriptors(),
+      onToolCallsRestored: () => undefined,
+    });
+
+    expect(json.data.biz_data.chat_messages[0].content).toBe(content);
+  });
+
   it('does not parse or pass huge artifact payloads back through restore records', () => {
     const records: any[] = [];
     const html = '<!doctype html><html><body>' + 'x'.repeat(250_000) + '</body></html>';

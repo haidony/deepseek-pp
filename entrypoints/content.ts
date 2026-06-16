@@ -28,6 +28,7 @@ import { containsInternalPromptMarker, sanitizeInternalPromptText } from '../cor
 import { createRestoredArtifactToolResult, executeArtifactToolCall, isArtifactToolName } from '../core/artifact';
 import type { ResponseCompletePayload, ResponseTokenSpeedPayload } from '../core/interceptor/fetch-hook';
 import { runInlineAgentLoop } from '../core/inline-agent/loop';
+import { replaceTaskCompleteBlocks } from '../core/inline-agent/prompt';
 import type {
   InlineAgentStartPayload,
   InlineAgentStreamChunkMsg,
@@ -85,7 +86,7 @@ import type {
 
 const TOOL_BLOCK_ID = 'dpp-tool-block';
 const TOOL_BLOCK_STYLE_ID = 'dpp-tool-block-css';
-const ASSISTANT_RESPONSE_CONTENT_SELECTOR = '._74c0879';
+const ASSISTANT_RESPONSE_CONTENT_SELECTOR = '._74c0879, .ds-assistant-message-main-content';
 const REASONING_HOST_META_RE = /\b(?:reason|reasoning|think|thinking|thought)\b/i;
 const REASONING_HOST_TEXT_RE = /^(?:已思考|思考中|正在思考|thinking|reasoning|thought)(?:[（(:：]|$)/i;
 const TOKEN_SPEED_BADGE_ID = 'dpp-token-speed-badge';
@@ -1901,19 +1902,28 @@ function startInlineAgentIfNeeded(
   void writeInlineAgentTrace(activeInlineAgentTrace);
 
   inlineAgentContainer = container;
-  const responseHost = getAssistantResponseHost(target);
-  responseHost.appendChild(container);
-
-  // Keep agent container at the bottom when DeepSeek's UI appends new content
-  inlineAgentContainerObserver?.disconnect();
-  inlineAgentContainerObserver = new MutationObserver(() => {
-    if (container.parentNode && container.nextSibling) {
-      container.parentNode.appendChild(container);
-    }
-  });
-  inlineAgentContainerObserver.observe(responseHost, { childList: true });
+  mountInlineAgentContainer(target, container);
 
   void startInlineAgentLoop(payload);
+}
+
+function mountInlineAgentContainer(message: Element, container: HTMLElement): void {
+  const placeContainer = () => {
+    const responseHost = getAssistantResponseHost(message);
+    if (container.parentElement !== responseHost) {
+      responseHost.appendChild(container);
+      return;
+    }
+    if (container.nextSibling) {
+      responseHost.appendChild(container);
+    }
+  };
+
+  placeContainer();
+
+  inlineAgentContainerObserver?.disconnect();
+  inlineAgentContainerObserver = new MutationObserver(placeContainer);
+  inlineAgentContainerObserver.observe(message, { childList: true, subtree: true });
 }
 
 function findInlineAgentLiveTarget(
@@ -2152,17 +2162,6 @@ function handleAgentLoopComplete(msg: InlineAgentLoopCompleteMsg): void {
 function getInlineAgentDisplayFinalText(text: string): string {
   const withoutToolCalls = stripToolCalls(text, { descriptors: currentToolDescriptors });
   return replaceTaskCompleteBlocks(withoutToolCalls).trim();
-}
-
-function replaceTaskCompleteBlocks(text: string): string {
-  return text.replace(/<task_complete>\s*({[\s\S]*?})\s*<\/task_complete>/g, (_m, json) => {
-    try {
-      const parsed = JSON.parse(json) as { summary?: unknown };
-      return typeof parsed.summary === 'string' ? parsed.summary : '';
-    } catch {
-      return '';
-    }
-  });
 }
 
 function appendInlineAgentFinalAnswer(container: HTMLElement, text: string, loopId: string): void {
@@ -2795,6 +2794,7 @@ function isInlineAgentTraceRecord(value: unknown): value is InlineAgentTraceReco
     typeof trace.anchorMessageId === 'number' &&
     (trace.anchorMessageIndex === undefined || trace.anchorMessageIndex === null || typeof trace.anchorMessageIndex === 'number') &&
     (trace.anchorContent === undefined || typeof trace.anchorContent === 'string') &&
+    (trace.finalText === undefined || typeof trace.finalText === 'string') &&
     typeof trace.url === 'string' &&
     typeof trace.createdAt === 'number' &&
     typeof trace.updatedAt === 'number' &&
@@ -2848,10 +2848,12 @@ async function restorePersistedInlineAgentTraces(): Promise<void> {
 
 function normalizeRestoredInlineAgentTrace(trace: InlineAgentTraceRecord): InlineAgentTraceRecord {
   const wasInterrupted = trace.status === 'running';
+  const finalText = typeof trace.finalText === 'string' ? trace.finalText : '';
   return {
     ...trace,
     status: wasInterrupted ? 'stopping' : trace.status,
     error: wasInterrupted ? contentT('content.agent.stopped') : trace.error,
+    finalText: clampText(finalText, INLINE_AGENT_FINAL_RENDER_MAX_CHARS) ?? '',
     steps: trace.steps.map((step) => ({
       ...step,
       status: wasInterrupted && step.status === 'streaming' ? 'error' : step.status,
@@ -3839,7 +3841,7 @@ function renderRestoredInlineAgentTraces(): number {
     }
 
     const container = createRestoredInlineAgentContainer(trace);
-    mountRestoredInlineAgentContainer(target, container);
+    mountRestoredInlineAgentContainer(target, container, trace);
     usedMessages.add(target);
   }
 
@@ -3939,7 +3941,8 @@ function createRestoredInlineAgentContainer(trace: InlineAgentTraceRecord): HTML
 
   for (const step of [...trace.steps].sort((a, b) => a.index - b.index)) {
     const stepEl = createAgentStepElement(step.index, undefined, getAgentRendererLabels());
-    updateStepStreamText(stepEl, clampText(step.text, INLINE_AGENT_STEP_RENDER_MAX_CHARS) ?? '');
+    const stepText = getInlineAgentDisplayFinalText(step.text) || step.text;
+    updateStepStreamText(stepEl, clampText(stepText, INLINE_AGENT_STEP_RENDER_MAX_CHARS) ?? '');
     for (const exec of step.toolExecutions) {
       addToolResultToStep(stepEl, exec.name, exec.result.ok, exec.result.summary);
     }
@@ -3973,9 +3976,11 @@ function getInlineAgentStepStatusLabel(step: InlineAgentTraceStepRecord): string
 function mountRestoredInlineAgentContainer(
   message: Element,
   container: HTMLElement,
+  trace: InlineAgentTraceRecord,
 ): void {
   const host = getAssistantResponseHost(message);
   host.appendChild(container);
+  appendInlineAgentFinalAnswer(container, getInlineAgentDisplayFinalText(trace.finalText), trace.loopId);
 }
 
 function findRestoredToolBlock(id: string): Element | null {
@@ -4257,6 +4262,7 @@ function containsToolMarker(text: string | null | undefined): boolean {
 function containsCleanableText(text: string | null | undefined): boolean {
   if (typeof text !== 'string' || !text) return false;
   if (containsInternalPromptMarker(text)) return true;
+  if (text.includes('<task_complete>') || text.includes('</task_complete>')) return true;
   if (text.includes(LEGACY_TOOL_CALLS_OPEN_TAG) || text.includes('｜DSML｜')) return true;
   if (!text.includes('<')) return false;
   if (hasLikelyToolMarkerPrefix(text)) return true;
@@ -4278,7 +4284,9 @@ function hasLikelyToolMarkerPrefix(text: string): boolean {
     text.includes('<python_') ||
     text.includes('</python_') ||
     text.includes('<shell_') ||
-    text.includes('</shell_');
+    text.includes('</shell_') ||
+    text.includes('<task_complete>') ||
+    text.includes('</task_complete>');
 }
 
 function cleanRenderedToolCalls() {
@@ -4342,7 +4350,10 @@ function stripToolCallTextNodes(root: Element) {
   for (const textNode of textNodes) {
     const original = textNode.nodeValue ?? '';
     if (!activeTool && !containsCleanableText(original)) continue;
-    const sanitizedOriginal = sanitizeInternalPromptText(original);
+    const sanitizedOriginal = sanitizeRenderedControlText(
+      original,
+      { replaceTaskComplete: shouldReplaceRenderedTaskCompleteBlock(textNode) },
+    );
     let cursor = 0;
     let next = '';
 
@@ -4379,6 +4390,21 @@ function stripToolCallTextNodes(root: Element) {
   for (const parent of changedParents) {
     pruneEmptyToolContainers(parent, root);
   }
+}
+
+function sanitizeRenderedControlText(text: string, options: { replaceTaskComplete: boolean }): string {
+  const sanitized = sanitizeInternalPromptText(text);
+  return options.replaceTaskComplete ? replaceTaskCompleteBlocks(sanitized) : sanitized;
+}
+
+function shouldReplaceRenderedTaskCompleteBlock(textNode: Text): boolean {
+  const parent = textNode.parentElement;
+  if (!parent) return false;
+  if (parent.closest('pre, code')) return false;
+
+  const message = parent.closest('.ds-message');
+  if (!message) return false;
+  return getAssistantContentHosts(message).some((host) => host.contains(parent));
 }
 
 function pruneEmptyToolContainers(start: HTMLElement, boundary: Element) {

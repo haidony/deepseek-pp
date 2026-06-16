@@ -4,6 +4,7 @@ import type { ToolExecutionRecord } from '../types';
 const PENDING_ACTION_RE = /(?:我(?:将|会|先|直接|现在|继续|尝试|开始|需要)|(?:接下来|下一步|然后).{0,24}(?:调用|创建|编辑|检查|验证|生成|保存|尝试)|(?:i(?:'ll| will| need to)|let me|next,? i).{0,48}(?:call|create|edit|inspect|validate|generate|save|try))/i;
 const FINALISH_RE = /(?:已(?:完成|创建|生成|保存|验证|写入|更新)|完成了|保存于|输出文件|最终|final answer|done|completed|created|saved|validated|written)/i;
 const TASK_COMPLETE_RE = /<task_complete>\s*([\s\S]*?)\s*<\/task_complete>/;
+const TASK_COMPLETE_BLOCK_RE = /<task_complete>\s*([\s\S]*?)\s*<\/task_complete>/g;
 
 export function extractTaskCompleteSignal(text: string): { summary: string; artifacts: string[] } | null {
   const match = TASK_COMPLETE_RE.exec(text);
@@ -16,6 +17,21 @@ export function extractTaskCompleteSignal(text: string): { summary: string; arti
     };
   } catch {
     return { summary: match[1].trim(), artifacts: [] };
+  }
+}
+
+export function replaceTaskCompleteBlocks(text: string): string {
+  return text.replace(TASK_COMPLETE_BLOCK_RE, (_match, body: string) => {
+    return getTaskCompleteSummary(body);
+  });
+}
+
+function getTaskCompleteSummary(body: string): string {
+  try {
+    const parsed = JSON.parse(body);
+    return typeof parsed.summary === 'string' ? parsed.summary : body.trim();
+  } catch {
+    return body.trim();
   }
 }
 

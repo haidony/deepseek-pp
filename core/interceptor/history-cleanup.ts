@@ -1,4 +1,5 @@
 import { DPP_MANAGED_AGENT_PROMPT_MARKER } from '../constants';
+import { replaceTaskCompleteBlocks } from '../inline-agent/prompt';
 import { sanitizeInternalPromptText } from '../prompt';
 import type { ToolCall, ToolCallRestoreRecord, ToolDescriptor } from '../types';
 import {
@@ -90,9 +91,11 @@ function stripMessageToolCalls(
   }
 
   let assistantMessageIndex = 0;
+  const inlineAgentContinuationMessageIds = collectInlineAgentContinuationMessageIds(visibleMessages);
   visibleMessages.forEach((msg: any, index: number) => {
+    const replaceTaskComplete = shouldReplaceStoredTaskCompleteBlocks(msg, inlineAgentContinuationMessageIds);
     sanitizeInlineAgentContinuationMessage(msg);
-    sanitizeStoredMessageInternalPrompt(msg);
+    sanitizeStoredMessageInternalPrompt(msg, { replaceTaskComplete });
     const hasStoredToolCall = storedMessageHasToolCallMarker(msg, toolDescriptors);
     const isAssistant = isAssistantStoredMessage(msg) || hasStoredToolCall;
     const currentAssistantMessageIndex = isAssistant ? assistantMessageIndex++ : null;
@@ -159,8 +162,40 @@ function storedMessageHasToolCallMarker(msg: any, toolDescriptors: readonly Tool
   return msg.fragments.some((frag: any) => typeof frag?.content === 'string' && hasToolCallMarker(frag.content, toolDescriptors));
 }
 
+function collectInlineAgentContinuationMessageIds(messages: any[]): Set<string> {
+  const ids = new Set<string>();
+  for (const msg of messages) {
+    if (!isInlineAgentContinuationMessage(msg)) continue;
+    const id = getStoredMessageId(msg);
+    if (id !== null) ids.add(id);
+  }
+  return ids;
+}
+
+function shouldReplaceStoredTaskCompleteBlocks(msg: any, inlineAgentContinuationMessageIds: Set<string>): boolean {
+  if (!isAssistantStoredMessage(msg)) return false;
+  const parentId = getStoredMessageParentId(msg);
+  return parentId !== null && inlineAgentContinuationMessageIds.has(parentId);
+}
+
 function isAssistantStoredMessage(msg: any): boolean {
   return firstString(msg?.message_role, msg?.role, msg?.type)?.toLowerCase() === 'assistant';
+}
+
+function getStoredMessageId(msg: any): string | null {
+  return firstStoredMessageId(msg?.id, msg?.message_id, msg?.messageId, msg?.uuid);
+}
+
+function getStoredMessageParentId(msg: any): string | null {
+  return firstStoredMessageId(msg?.parent_id, msg?.parent_message_id, msg?.parentMessageId);
+}
+
+function firstStoredMessageId(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return null;
 }
 
 function firstString(...values: unknown[]): string | null {
@@ -466,11 +501,11 @@ function clampText(value: string | undefined, maxLength: number): string | undef
   return value.length > maxLength ? `${value.slice(0, maxLength)}\n...[truncated]` : value;
 }
 
-function sanitizeStoredMessageInternalPrompt(msg: any) {
+function sanitizeStoredMessageInternalPrompt(msg: any, options: { replaceTaskComplete: boolean }) {
   if (!msg || typeof msg !== 'object') return;
 
   if (typeof msg.content === 'string') {
-    msg.content = sanitizeInternalPromptText(msg.content);
+    msg.content = sanitizeStoredControlText(msg.content, options);
   }
 
   if (!Array.isArray(msg.fragments)) return;
@@ -481,7 +516,7 @@ function sanitizeStoredMessageInternalPrompt(msg: any) {
   if (textFragments.length === 0) return;
 
   const joined = textFragments.map((frag: any) => frag.content).join('');
-  const sanitizedJoined = sanitizeInternalPromptText(joined);
+  const sanitizedJoined = sanitizeStoredControlText(joined, options);
   if (sanitizedJoined !== joined) {
     textFragments.forEach((frag: any, index: number) => {
       frag.content = index === 0 ? sanitizedJoined : '';
@@ -490,8 +525,13 @@ function sanitizeStoredMessageInternalPrompt(msg: any) {
   }
 
   for (const frag of textFragments) {
-    frag.content = sanitizeInternalPromptText(frag.content);
+    frag.content = sanitizeStoredControlText(frag.content, options);
   }
+}
+
+function sanitizeStoredControlText(text: string, options: { replaceTaskComplete: boolean }): string {
+  const sanitized = sanitizeInternalPromptText(text);
+  return options.replaceTaskComplete ? replaceTaskCompleteBlocks(sanitized) : sanitized;
 }
 
 function isInternalManagedAgentMessage(msg: any): boolean {
