@@ -13,6 +13,18 @@ describe('content tool block styles', () => {
     expect(rule).toContain('overscroll-behavior: contain;');
   });
 
+  it('renders artifact results outside the collapsible executed-tools block', () => {
+    const path = join(process.cwd(), 'entrypoints/content.ts');
+    const source = readFileSync(path, 'utf8');
+
+    expect(source).toContain('.dpp-artifact-results');
+    expect(source).toContain('function renderDetachedArtifactResults(');
+    expect(source).toContain('isDetachedArtifactToolResult(exec.result)');
+    expect(source).toContain('renderDetachedArtifactResultsForBlock(session, toolBlockEl);');
+    expect(source).toContain('renderDetachedArtifactResults(target, record.id, executions, block);');
+    expect(source).toContain('responseHost.insertBefore(container, anchor);');
+  });
+
   it('keeps rendered tool cleanup bounded for large message bodies', () => {
     const path = join(process.cwd(), 'entrypoints/content.ts');
     const source = readFileSync(path, 'utf8');

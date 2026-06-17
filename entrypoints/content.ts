@@ -3478,6 +3478,15 @@ function injectToolBlockStyles() {
     .dpp-tool-block {
       margin-top: 8px;
     }
+    .dpp-artifact-results {
+      margin-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .dpp-artifact-results:empty {
+      display: none;
+    }
     .dpp-tool-block-header {
       display: flex;
       align-items: center;
@@ -3653,11 +3662,13 @@ function updateToolBlockContent(block: HTMLElement, executions: ToolExecutionRec
     if (detail) {
       const detailEl = document.createElement('div');
       detailEl.className = 'dpp-tool-block-item-detail';
-      const rendered = renderToolResultWithRegistry({
-        target: detailEl,
-        result: exec.result,
-        sendMessage: sendRuntimeMessage,
-      });
+      const rendered = isDetachedArtifactToolResult(exec.result)
+        ? false
+        : renderToolResultWithRegistry({
+          target: detailEl,
+          result: exec.result,
+          sendMessage: sendRuntimeMessage,
+        });
       if (!rendered) detailEl.textContent = detail;
       item.querySelector('.dpp-tool-block-item-text')!.appendChild(detailEl);
     }
@@ -3751,13 +3762,93 @@ function renderToolBlock(session: ActiveToolBlockSession = getActiveToolBlockSes
   }
 
   if (!toolBlockEl.isConnected) {
-    placeToolBlock(toolBlockEl, () => isToolBlockSessionOnCurrentRoute(session));
+    const block = toolBlockEl;
+    placeToolBlock(
+      block,
+      () => isToolBlockSessionOnCurrentRoute(session),
+      (message) => renderDetachedArtifactResults(message, session.id, session.executions, block),
+    );
   }
 
   if (!options?.skipCleanup) {
     cleanRenderedToolCalls();
   }
   updateToolBlockContent(toolBlockEl, session.executions);
+  renderDetachedArtifactResultsForBlock(session, toolBlockEl);
+}
+
+function renderDetachedArtifactResultsForBlock(session: ActiveToolBlockSession, block: HTMLElement) {
+  const message = block.closest('.ds-message');
+  if (!message) return;
+  renderDetachedArtifactResults(message, session.id, session.executions, block);
+}
+
+function renderDetachedArtifactResults(
+  message: Element,
+  sessionId: string,
+  executions: ToolExecutionRecord[],
+  beforeBlock?: HTMLElement,
+) {
+  const artifactExecutions = executions.filter(isDetachedArtifactExecution);
+  const existing = findDetachedArtifactResults(message, sessionId);
+  if (artifactExecutions.length === 0) {
+    existing?.remove();
+    return;
+  }
+
+  injectToolBlockStyles();
+  const responseHost = getAssistantResponseHost(message);
+  const container = existing ?? createDetachedArtifactResultsContainer(sessionId);
+  container.innerHTML = '';
+  for (const exec of artifactExecutions) {
+    const item = document.createElement('div');
+    item.className = 'dpp-artifact-result-item';
+    const rendered = renderToolResultWithRegistry({
+      target: item,
+      result: exec.result,
+      sendMessage: sendRuntimeMessage,
+    });
+    if (rendered) container.appendChild(item);
+  }
+
+  if (container.childElementCount === 0) {
+    container.remove();
+    return;
+  }
+
+  const anchor = beforeBlock && beforeBlock.parentElement === responseHost ? beforeBlock : null;
+  if (!container.isConnected) {
+    responseHost.insertBefore(container, anchor);
+  } else if (anchor && container.nextSibling !== anchor) {
+    responseHost.insertBefore(container, anchor);
+  }
+}
+
+function createDetachedArtifactResultsContainer(sessionId: string): HTMLElement {
+  const container = document.createElement('div');
+  container.className = 'dpp-artifact-results';
+  container.setAttribute('data-dpp-artifact-session-id', sessionId);
+  return container;
+}
+
+function findDetachedArtifactResults(message: Element, sessionId: string): HTMLElement | null {
+  const responseHost = getAssistantResponseHost(message);
+  return Array.from(responseHost.querySelectorAll<HTMLElement>(':scope > .dpp-artifact-results'))
+    .find((container) => container.getAttribute('data-dpp-artifact-session-id') === sessionId) ?? null;
+}
+
+function isDetachedArtifactExecution(execution: ToolExecutionRecord): boolean {
+  return !execution.pending && isDetachedArtifactToolResult(execution.result);
+}
+
+function isDetachedArtifactToolResult(result: ToolCardResult): boolean {
+  const output = result.output;
+  return Boolean(
+    output &&
+    typeof output === 'object' &&
+    !Array.isArray(output) &&
+    (output as Record<string, unknown>).kind === 'artifact',
+  );
 }
 
 function scheduleRenderRestoredToolBlocks() {
@@ -3799,6 +3890,7 @@ function renderRestoredToolBlocks(): number {
     const block = createToolBlockShell({ restoreId: record.id, collapsed: true });
     updateToolBlockContent(block, executions);
     appendToolBlockToMessage(target, block);
+    renderDetachedArtifactResults(target, record.id, executions, block);
     usedMessages.add(target);
   }
 
@@ -4330,7 +4422,9 @@ function stripToolCallTextNodes(root: Element) {
       const parent = node.parentElement;
       if (!parent) return NodeFilter.FILTER_REJECT;
       if (
-        parent.closest('.dpp-tool-block') ||
+        // Detached artifact cards live outside .dpp-tool-block but must be
+        // exempt from tool-call text stripping just like the block itself.
+        parent.closest('.dpp-tool-block, .dpp-artifact-results') ||
         parent.closest('script, style, textarea, input, [contenteditable="true"]')
       ) {
         return NodeFilter.FILTER_REJECT;
@@ -4438,7 +4532,11 @@ function appendToolBlockToMessage(message: Element, block: HTMLElement) {
   getAssistantResponseHost(message).appendChild(block);
 }
 
-function placeToolBlock(block: HTMLElement, canPlace: () => boolean = () => true) {
+function placeToolBlock(
+  block: HTMLElement,
+  canPlace: () => boolean = () => true,
+  onPlaced?: (message: Element) => void,
+) {
   const tryPlace = () => {
     if (!canPlace()) return false;
     // Find last assistant message container
@@ -4447,6 +4545,7 @@ function placeToolBlock(block: HTMLElement, canPlace: () => boolean = () => true
 
     const lastMsg = messages[messages.length - 1];
     appendToolBlockToMessage(lastMsg, block);
+    onPlaced?.(lastMsg);
     return true;
   };
 
