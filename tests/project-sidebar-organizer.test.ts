@@ -100,6 +100,47 @@ describe('DeepSeek project sidebar organizer', () => {
     expect(document.querySelectorAll('a[data-dpp-project-conversation-id="session-one"]')).toHaveLength(1);
   });
 
+  it('normalizes stale project conversation urls to the matching history route', () => {
+    const state = createProjectState({
+      conversations: [{
+        conversationId: 'session-one',
+        projectId: 'project-deepseek',
+        title: '发布 0.7.3 版本',
+        url: 'https://chat.deepseek.com/a/chat/new',
+        addedAt: NOW - 60_000,
+        lastSeenAt: NOW - 60_000,
+      }],
+    });
+    mountHistoryDom();
+
+    const section = renderProjectSidebar(document, createRenderOptions({
+      state,
+      expandedProjectIds: new Set(['project-deepseek']),
+    }));
+
+    expect(section?.querySelector<HTMLAnchorElement>('a[data-dpp-project-conversation-id="session-one"]')?.href)
+      .toBe('http://localhost:3000/a/chat/s/session-one');
+  });
+
+  it('opens project conversations through the matching native history link', async () => {
+    const state = createProjectState();
+    sendMessage.mockImplementation(async (message) => {
+      if (message.type === 'GET_PROJECT_CONTEXT_STATE') return state;
+      return { ok: true };
+    });
+    mountHistoryDom();
+    const nativeOpen = vi.fn((event: Event) => event.preventDefault());
+    document.querySelector<HTMLAnchorElement>('[data-testid="session-one-link"]')?.addEventListener('click', nativeOpen);
+
+    const controller = startDeepSeekProjectSidebarOrganizer(() => labels);
+    await flushProjectSidebar();
+
+    document.querySelector<HTMLAnchorElement>('a[data-dpp-project-conversation-id="session-one"]')?.click();
+
+    expect(nativeOpen).toHaveBeenCalledTimes(1);
+    controller.stop();
+  });
+
   it('moves the current conversation from the project sidebar action', async () => {
     const state = createProjectState({ conversations: [] });
     sendMessage.mockImplementation(async (message) => {
@@ -358,8 +399,8 @@ function mountHistoryDom() {
     <nav data-testid="sidebar">
       <button>开启新对话</button>
       <div>今天</div>
-      <div data-testid="session-one-row"><a href="https://chat.deepseek.com/a/chat/s/session-one">发布 0.7.3 版本</a><button data-testid="session-one-menu">...</button></div>
-      <div data-testid="session-two-row"><a href="https://chat.deepseek.com/a/chat/s/session-two">检查未提交更改</a><button data-testid="session-two-menu">...</button></div>
+      <div data-testid="session-one-row"><a data-testid="session-one-link" href="https://chat.deepseek.com/a/chat/s/session-one">发布 0.7.3 版本</a><button data-testid="session-one-menu">...</button></div>
+      <div data-testid="session-two-row"><a data-testid="session-two-link" href="https://chat.deepseek.com/a/chat/s/session-two">检查未提交更改</a><button data-testid="session-two-menu">...</button></div>
     </nav>
   `;
 }
@@ -376,6 +417,7 @@ function createRenderOptions(
     showAllProjectIds: new Set(),
     onToggleProject: vi.fn(),
     onToggleShowAll: vi.fn(),
+    onOpenProjectConversation: vi.fn(),
     onOpenProjectConversationMenu: vi.fn(),
     onRemoveConversationFromProject: vi.fn(),
     onMoveCurrent: vi.fn(),

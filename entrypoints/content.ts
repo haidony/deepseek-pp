@@ -95,7 +95,7 @@ import {
   canUseMultimodalMediaInput,
 } from '../core/multimodal';
 
-import { createClientHeaders, rememberDeepSeekClientHeaders, saveClientHeadersToStorage } from '../core/deepseek/adapter';
+import { buildDeepSeekSessionUrl, createClientHeaders, rememberDeepSeekClientHeaders, saveClientHeadersToStorage } from '../core/deepseek/adapter';
 import type {
   ConversationExportArtifact,
   ConversationExportProgress,
@@ -718,7 +718,7 @@ async function resolveProjectContextForRequestBody(bodyStr: string): Promise<Res
       conversation: {
         conversationId: sessionId,
         title: getCurrentConversationTitle(),
-        url: location.href,
+        url: buildDeepSeekSessionUrl(sessionId),
       },
     },
   });

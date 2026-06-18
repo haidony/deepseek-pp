@@ -10,6 +10,7 @@ import {
   parseSessionId,
   type HistoryItem,
 } from './history-organizer';
+import { injectInjectedThemeStyles } from '../../../core/ui/injected-theme';
 
 export interface ProjectSidebarOrganizerController {
   stop(): void;
@@ -56,7 +57,7 @@ const NATIVE_MENU_TEXT = {
 type ProjectSectionHandlers = Pick<
   Parameters<typeof renderProjectSidebar>[1],
   'onMoveCurrent' | 'onTogglePending' | 'onToggleProject' | 'onToggleShowAll'
-  | 'onOpenProjectConversationMenu' | 'onRemoveConversationFromProject'
+  | 'onOpenProjectConversation' | 'onOpenProjectConversationMenu' | 'onRemoveConversationFromProject'
 >;
 
 interface BoundProjectSection extends HTMLElement {
@@ -143,6 +144,9 @@ export function startDeepSeekProjectSidebarOrganizer(
               showAllProjectIds.add(projectId);
             }
             schedule();
+          },
+          onOpenProjectConversation(conversationId, href) {
+            openProjectConversation(conversationId, href, cachedHistoryItems);
           },
           onOpenProjectConversationMenu(menu) {
             projectConversationMenu = isSameProjectConversationMenu(projectConversationMenu, menu) ? null : menu;
@@ -303,6 +307,7 @@ export function renderProjectSidebar(
     showAllProjectIds: ReadonlySet<string>;
     onToggleProject(projectId: string): void;
     onToggleShowAll(projectId: string): void;
+    onOpenProjectConversation(conversationId: string, href: string): void;
     onOpenProjectConversationMenu(menu: ProjectConversationMenuState): void;
     onRemoveConversationFromProject(conversationId: string): void;
     onMoveCurrent(projectId: string): void;
@@ -448,6 +453,14 @@ function bindProjectSection(
     const target = event.target;
     if (!(target instanceof Element)) return;
 
+    const conversationLink = target.closest<HTMLAnchorElement>('a[data-dpp-project-conversation-id]');
+    if (conversationLink?.dataset.dppProjectConversationId && shouldOpenProjectConversationFromEvent(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      handlers.onOpenProjectConversation(conversationLink.dataset.dppProjectConversationId, conversationLink.href);
+      return;
+    }
+
     const actionButton = target.closest<HTMLButtonElement>('[data-dpp-project-action]');
     if (actionButton) {
       event.preventDefault();
@@ -498,7 +511,7 @@ function bindProjectSection(
   section.addEventListener('pointerdown', (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
-    if (!target.closest('button')) return;
+    if (!target.closest('button') && !target.closest('a[data-dpp-project-conversation-id]')) return;
     boundSection.__dppProjectSidebarPointerHandled = true;
     handleProjectSectionAction(event);
     setTimeout(() => {
@@ -886,9 +899,32 @@ function findHistoryConversationForNode(node: Node, items: readonly HistoryItem[
 }
 
 function findHistoryHref(element: HTMLElement, sessionId: string): string {
-  const anchors = Array.from(element.querySelectorAll<HTMLAnchorElement>('a[href]'));
-  const anchor = anchors.find((candidate) => parseSessionId(candidate.href) === sessionId);
+  const anchor = findHistoryAnchorInElement(element, sessionId);
   return anchor?.href ?? new URL(`/a/chat/s/${encodeURIComponent(sessionId)}`, location.origin).href;
+}
+
+function openProjectConversation(
+  conversationId: string,
+  fallbackHref: string,
+  historyItems: readonly HistoryItem[],
+): void {
+  if (parseSessionId(location.href) === conversationId) return;
+
+  const nativeAnchor = historyItems
+    .find((candidate) => candidate.sessionId === conversationId)
+    ?.element;
+  const anchor = nativeAnchor ? findHistoryAnchorInElement(nativeAnchor, conversationId) : null;
+  if (anchor) {
+    anchor.click();
+    return;
+  }
+
+  window.location.assign(normalizeConversationHrefForSession(conversationId, fallbackHref));
+}
+
+function findHistoryAnchorInElement(element: HTMLElement, sessionId: string): HTMLAnchorElement | null {
+  const anchors = Array.from(element.querySelectorAll<HTMLAnchorElement>('a[href]'));
+  return anchors.find((candidate) => parseSessionId(candidate.href) === sessionId) ?? null;
 }
 
 function getCurrentConversation(
@@ -913,8 +949,18 @@ function getCurrentConversationTitle(labels: ProjectSidebarOrganizerLabels): str
 }
 
 function normalizeConversationHref(conversation: ProjectConversation): string {
-  if (conversation.url.trim()) return conversation.url;
-  return new URL(`/a/chat/s/${encodeURIComponent(conversation.conversationId)}`, location.origin).href;
+  return normalizeConversationHrefForSession(conversation.conversationId, conversation.url);
+}
+
+function normalizeConversationHrefForSession(sessionId: string, url: string): string {
+  const trimmed = url.trim();
+  if (trimmed && parseSessionId(trimmed) === sessionId) return trimmed;
+  return new URL(`/a/chat/s/${encodeURIComponent(sessionId)}`, location.origin).href;
+}
+
+function shouldOpenProjectConversationFromEvent(event: Event): boolean {
+  if (!(event instanceof MouseEvent)) return true;
+  return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 }
 
 function isProjectContextState(value: unknown): value is ProjectContextState {
@@ -975,23 +1021,24 @@ function moreIcon(): string {
 }
 
 function injectProjectSidebarStyles(): void {
+  injectInjectedThemeStyles();
   if (document.getElementById(PROJECT_STYLE_ID)) return;
   const style = document.createElement('style');
   style.id = PROJECT_STYLE_ID;
   style.textContent = `
     #${PROJECT_SECTION_ID} {
-      --dpp-project-accent: #4f6ff5;
-      --dpp-project-line: color-mix(in srgb, currentColor 13%, transparent);
-      --dpp-project-soft: color-mix(in srgb, currentColor 6%, transparent);
-      --dpp-project-soft-hover: color-mix(in srgb, currentColor 10%, transparent);
-      --dpp-project-active: color-mix(in srgb, var(--dpp-project-accent) 14%, transparent);
-      --dpp-project-muted: color-mix(in srgb, currentColor 54%, transparent);
+      --dpp-project-accent: var(--dpp-ui-accent, oklch(0.62 0.19 264));
+      --dpp-project-line: color-mix(in srgb, var(--dpp-ui-text, currentColor) 13%, transparent);
+      --dpp-project-soft: color-mix(in srgb, var(--dpp-ui-text, currentColor) 6%, transparent);
+      --dpp-project-soft-hover: color-mix(in srgb, var(--dpp-ui-text, currentColor) 9%, transparent);
+      --dpp-project-active: var(--dpp-ui-accent-panel, color-mix(in srgb, var(--dpp-project-accent) 10%, transparent));
+      --dpp-project-muted: var(--dpp-ui-text-muted, color-mix(in srgb, currentColor 54%, transparent));
       box-sizing: border-box;
       display: grid;
       gap: 4px;
       margin: 12px 0 10px;
       padding: 0 14px;
-      color: inherit;
+      color: var(--dpp-ui-text, inherit);
       font: 14px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
     }
     #${PROJECT_SECTION_ID} * {
@@ -1097,7 +1144,7 @@ function injectProjectSidebarStyles(): void {
     #${PROJECT_SECTION_ID} .dpp-project-sidebar__icon-button:hover,
     #${PROJECT_SECTION_ID} .dpp-project-sidebar__icon-button[data-active="true"] {
       background: var(--dpp-project-active);
-      color: color-mix(in srgb, var(--dpp-project-accent) 82%, currentColor);
+      color: var(--dpp-project-accent);
     }
     #${PROJECT_SECTION_ID} .dpp-project-sidebar__icon-button svg {
       width: 16px;
@@ -1110,7 +1157,7 @@ function injectProjectSidebarStyles(): void {
     }
     #${PROJECT_SECTION_ID} .dpp-project-sidebar__pending {
       margin: -1px 0 3px 30px;
-      color: color-mix(in srgb, var(--dpp-project-accent) 78%, currentColor);
+      color: var(--dpp-project-accent);
       font-size: 11px;
     }
     #${PROJECT_SECTION_ID} .dpp-project-sidebar__conversation-list {
