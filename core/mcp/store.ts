@@ -7,20 +7,14 @@ import type {
   McpServerId,
   McpServerStatus,
   McpServerStorageState,
-  McpServerTimeouts,
   McpServerUpdateInput,
   McpToolCacheEntry,
 } from './types';
+import { MCP_DEFAULT_LIMITS, MCP_DEFAULT_TIMEOUTS } from './constants';
 
 const STORAGE_KEY = 'deepseek_pp_mcp_servers';
 const STORAGE_VERSION = 1;
 const REDACTED_SECRET_VALUE = '********';
-
-const DEFAULT_TIMEOUTS: McpServerTimeouts = {
-  connectMs: 10_000,
-  requestMs: 60_000,
-  discoveryMs: 20_000,
-};
 
 const EMPTY_STATE: McpServerStorageState = {
   version: STORAGE_VERSION,
@@ -55,11 +49,8 @@ export async function createMcpServer(input: McpServerCreateInput): Promise<McpS
     transport: input.transport,
     headers: input.headers ?? [],
     secrets: input.secrets ?? [],
-    timeouts: input.timeouts ?? DEFAULT_TIMEOUTS,
-    limits: input.limits ?? {
-      maxResultBytes: 64_000,
-      maxToolCount: 128,
-    },
+    timeouts: input.timeouts ?? MCP_DEFAULT_TIMEOUTS,
+    limits: input.limits ?? MCP_DEFAULT_LIMITS,
     allowlist: input.allowlist ?? {
       mode: 'all',
       toolNames: [],
@@ -235,13 +226,13 @@ function normalizeServer(raw: unknown): McpServerConfig {
     headers: headerArrayValue(value.headers),
     secrets: secretArrayValue(value.secrets),
     timeouts: {
-      connectMs: positiveNumber(value.timeouts?.connectMs, DEFAULT_TIMEOUTS.connectMs),
-      requestMs: positiveNumber(value.timeouts?.requestMs, DEFAULT_TIMEOUTS.requestMs),
-      discoveryMs: positiveNumber(value.timeouts?.discoveryMs, DEFAULT_TIMEOUTS.discoveryMs),
+      connectMs: positiveNumber(value.timeouts?.connectMs, MCP_DEFAULT_TIMEOUTS.connectMs),
+      requestMs: positiveNumber(value.timeouts?.requestMs, MCP_DEFAULT_TIMEOUTS.requestMs),
+      discoveryMs: positiveNumber(value.timeouts?.discoveryMs, MCP_DEFAULT_TIMEOUTS.discoveryMs),
     },
     limits: {
-      maxResultBytes: positiveNumber(value.limits?.maxResultBytes, 64_000),
-      maxToolCount: positiveNumber(value.limits?.maxToolCount, 128),
+      maxResultBytes: positiveNumber(value.limits?.maxResultBytes, MCP_DEFAULT_LIMITS.maxResultBytes),
+      maxToolCount: positiveNumber(value.limits?.maxToolCount, MCP_DEFAULT_LIMITS.maxToolCount),
     },
     allowlist: {
       mode: value.allowlist?.mode === 'allow' || value.allowlist?.mode === 'deny' ? value.allowlist.mode : 'all',

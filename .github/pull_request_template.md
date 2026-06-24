@@ -19,6 +19,22 @@ Base sync command or commit:
 
 <!-- Example: git fetch origin && git rebase origin/main -->
 
+## AI Coding Disclosure
+
+<!-- Required. Check one option and do not leave the model/tool fields blank. -->
+
+- [ ] Fully AI-coded: all programming changes were produced by AI and accepted/reviewed by the contributor.
+- [ ] Partially AI-assisted: AI helped write or modify some programming changes.
+- [ ] No AI coding assistance was used.
+
+AI model(s) used:
+
+<!-- Required when AI was used. Use N/A only when no AI coding assistance was used. Example: GPT-5, Claude Sonnet 4, Gemini 2.5 Pro. -->
+
+Coding Agent tool(s) used:
+
+<!-- Required when AI was used. Use N/A only when no AI coding assistance was used. Example: Codex, Claude Code, Cursor, GitHub Copilot Coding Agent. -->
+
 ## Local Validation
 
 Commands run:

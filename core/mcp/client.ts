@@ -22,8 +22,7 @@ import type {
   McpToolDefinition,
 } from './types';
 import { getExtensionVersion } from '../version';
-
-export const MCP_PROTOCOL_VERSION = '2025-06-18';
+import { MCP_PROTOCOL_VERSION } from './constants';
 
 const CLIENT_NAME = 'DeepSeek++';
 

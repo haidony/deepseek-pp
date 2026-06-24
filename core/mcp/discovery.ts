@@ -1,5 +1,5 @@
 import type { ToolCall, ToolDescriptor, ToolResult } from '../tool';
-import { applyMcpToolPolicy, callMcpTool, createMcpProtocolClient } from './client';
+import { applyMcpToolPolicy, callMcpTool, createMcpProtocolClient, initializeMcpServer } from './client';
 import {
   getAllMcpServers,
   getAllMcpToolCaches,
@@ -162,17 +162,46 @@ export async function executeMcpToolCall(
       },
     };
   }
-  const transport = createMcpTransport(server);
-  return callMcpTool(server, transport, {
-    call: {
-      ...call,
-      descriptorId: descriptor?.id ?? call.descriptorId,
-      provider: descriptor?.provider ?? call.provider,
-    },
-    descriptor,
-    timeoutMs: options.timeoutMs ?? descriptor?.execution.timeoutMs ?? server.timeouts.requestMs,
-    maxResultBytes: options.maxResultBytes ?? descriptor?.execution.maxResultBytes ?? server.limits.maxResultBytes,
-  });
+  const startedAt = Date.now();
+  try {
+    const transport = createMcpTransport(server);
+    await initializeMcpServer(server, transport);
+    return callMcpTool(server, transport, {
+      call: {
+        ...call,
+        descriptorId: descriptor?.id ?? call.descriptorId,
+        provider: descriptor?.provider ?? call.provider,
+      },
+      descriptor,
+      timeoutMs: options.timeoutMs ?? descriptor?.execution.timeoutMs ?? server.timeouts.requestMs,
+      maxResultBytes: options.maxResultBytes ?? descriptor?.execution.maxResultBytes ?? server.limits.maxResultBytes,
+    });
+  } catch (err) {
+    const completedAt = Date.now();
+    const message = err instanceof Error ? err.message : String(err);
+    const error = err && typeof err === 'object'
+      ? err as { code?: unknown; retryable?: unknown; details?: unknown }
+      : {};
+    return {
+      ok: false,
+      summary: 'MCP 服务初始化失败',
+      detail: message,
+      name: descriptor.name,
+      provider: descriptor.provider,
+      descriptorId: descriptor.id,
+      startedAt,
+      completedAt,
+      durationMs: completedAt - startedAt,
+      error: {
+        code: typeof error.code === 'string' ? error.code : 'mcp_initialize_failed',
+        message,
+        retryable: typeof error.retryable === 'boolean' ? error.retryable : true,
+        details: error.details && typeof error.details === 'object'
+          ? error.details as Record<string, unknown>
+          : undefined,
+      },
+    };
+  }
 }
 
 async function discoverServerTools(

@@ -1,5 +1,8 @@
 export {
   MCP_PROTOCOL_VERSION,
+} from './constants';
+
+export {
   McpProtocolError,
   callMcpTool,
   createMcpDescriptorId,
