@@ -23,6 +23,7 @@ function OAuthConfigFields({ state }: { state: SettingsState }) {
     ? t('sidepanel.settings.gdriveConsole')
     : t('sidepanel.settings.onedriveConsole');
   const authorized = isOAuthAuthorized(config);
+  const redirectUri = state.syncRedirectUri ?? t('sidepanel.settings.redirectUriUnavailable');
 
   return (
     <>
@@ -44,9 +45,12 @@ function OAuthConfigFields({ state }: { state: SettingsState }) {
         </div>
         <code
           className="block text-[10px] break-all px-2 py-1.5 rounded"
-          style={{ background: 'var(--ds-bg-tertiary)', color: 'var(--ds-text-secondary)' }}
+          style={{
+            background: 'var(--ds-bg-tertiary)',
+            color: state.syncRedirectUri ? 'var(--ds-text-secondary)' : 'var(--ds-danger)',
+          }}
         >
-          {state.syncRedirectUri}
+          {redirectUri}
         </code>
         <div className="text-[10px]" style={{ color: 'var(--ds-text-tertiary)' }}>
           {t('sidepanel.settings.redirectUriHint')}
@@ -62,7 +66,7 @@ function OAuthConfigFields({ state }: { state: SettingsState }) {
           success: t('sidepanel.settings.authorizeSuccess'),
           failed: t('sidepanel.settings.operationFailed'),
         })}
-        disabled={state.syncBusy || !isSyncReady(config)}
+        disabled={state.syncBusy || !isSyncReady(config) || !state.syncRedirectUri}
         className="ds-btn-secondary w-full py-2.5 text-xs font-medium rounded-lg transition-all duration-150 flex items-center justify-center gap-1.5 disabled:opacity-40"
       >
         {state.syncStatus === 'testing' ? (

@@ -7,6 +7,7 @@ import {
   type PromptInjectionSettings,
 } from '../core/prompt/settings';
 import PromptControlPanel from '../entrypoints/sidepanel/components/PromptControlPanel';
+import ChatPage from '../entrypoints/sidepanel/pages/ChatPage';
 import SavedPage from '../entrypoints/sidepanel/pages/SavedPage';
 
 let container: HTMLDivElement;
@@ -173,6 +174,86 @@ describe('sidepanel interactions', () => {
     expect(container.textContent).toContain('保存提示词设置失败：tabs permission unavailable');
     expect((memoryToggle as HTMLButtonElement).getAttribute('style')).toContain('var(--ds-blue)');
   });
+
+  it('persists web model mode from sidepanel chat controls', async () => {
+    const sendMessage = vi.fn(async (message: { type: string; payload?: unknown }) => {
+      if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };
+      if (message.type === 'GET_OFFICIAL_API_CHAT_CONFIG') return {};
+      if (message.type === 'GET_MODEL_TYPE') return null;
+      if (message.type === 'GET_VOICE_SETTINGS') return {};
+      if (message.type === 'SET_MODEL_TYPE') return { ok: true };
+      return null;
+    });
+    stubChrome(sendMessage);
+
+    await renderElement(React.createElement(ChatPage));
+    await flushPromises();
+    expect(buttonByText('默认').className).toContain('ds-chat-segment-active');
+
+    await clickButton('识图');
+
+    expect(sendMessage).toHaveBeenCalledWith({ type: 'SET_MODEL_TYPE', payload: 'vision' });
+    expect(buttonByText('识图').className).toContain('ds-chat-segment-active');
+  });
+
+  it('uploads a vision image attachment and submits its file reference', async () => {
+    const sendMessage = vi.fn(async (message: { type: string; payload?: unknown }) => {
+      if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };
+      if (message.type === 'GET_OFFICIAL_API_CHAT_CONFIG') return {};
+      if (message.type === 'GET_MODEL_TYPE') return 'vision';
+      if (message.type === 'GET_VOICE_SETTINGS') return {};
+      if (message.type === 'UPLOAD_DEEPSEEK_IMAGE') {
+        return {
+          ok: true,
+          file: {
+            id: 'file-image-1',
+            fileName: 'shot.png',
+            status: 'SUCCESS',
+          },
+        };
+      }
+      if (message.type === 'CHAT_SUBMIT_PROMPT') return { ok: true };
+      return null;
+    });
+    stubChrome(sendMessage);
+    stubObjectUrl();
+    stubFileReader('data:image/png;base64,YWJj');
+
+    await renderElement(React.createElement(ChatPage));
+    await flushPromises();
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement | null;
+    expect(fileInput).toBeTruthy();
+    const image = new File(['abc'], 'shot.png', { type: 'image/png' });
+    Object.defineProperty(fileInput, 'files', { value: [image], configurable: true });
+
+    await act(async () => {
+      fileInput?.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await flushPromises();
+
+    expect(sendMessage).toHaveBeenCalledWith({
+      type: 'UPLOAD_DEEPSEEK_IMAGE',
+      payload: {
+        dataUrl: 'data:image/png;base64,YWJj',
+        name: 'shot.png',
+        mimeType: 'image/png',
+        sizeBytes: 3,
+      },
+    });
+    expect(container.textContent).toContain('已添加');
+
+    await enterText('给 DeepSeek++ 发送消息', '描述这张图片');
+    await clickButtonByLabel('发送');
+
+    expect(sendMessage).toHaveBeenCalledWith({
+      type: 'CHAT_SUBMIT_PROMPT',
+      payload: {
+        text: '描述这张图片',
+        refFileIds: ['file-image-1'],
+      },
+    });
+  });
 });
 
 async function renderElement(element: React.ReactElement) {
@@ -207,8 +288,14 @@ async function enterText(placeholder: string, value: string) {
 }
 
 async function clickButton(label: string) {
-  const button = Array.from(container.querySelectorAll('button'))
-    .find((candidate) => candidate.textContent === label);
+  const button = buttonByText(label);
+  await act(async () => {
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+}
+
+async function clickButtonByLabel(label: string) {
+  const button = container.querySelector(`button[aria-label="${label}"]`);
   expect(button).toBeTruthy();
   await act(async () => {
     button?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -227,6 +314,13 @@ function inputByPlaceholder(placeholder: string): HTMLInputElement | HTMLTextAre
   return input as HTMLInputElement | HTMLTextAreaElement;
 }
 
+function buttonByText(label: string): HTMLButtonElement {
+  const button = Array.from(container.querySelectorAll('button'))
+    .find((candidate) => candidate.textContent === label);
+  expect(button).toBeTruthy();
+  return button as HTMLButtonElement;
+}
+
 function setTextControlValue(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
   const prototype = input instanceof HTMLTextAreaElement
     ? HTMLTextAreaElement.prototype
@@ -238,4 +332,27 @@ function setTextControlValue(input: HTMLInputElement | HTMLTextAreaElement, valu
 function setSelectValue(select: HTMLSelectElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
   setter?.call(select, value);
+}
+
+function stubObjectUrl() {
+  vi.stubGlobal('URL', Object.assign(URL, {
+    createObjectURL: vi.fn(() => 'blob:preview'),
+    revokeObjectURL: vi.fn(),
+  }));
+}
+
+function stubFileReader(dataUrl: string) {
+  class MockFileReader {
+    result: string | ArrayBuffer | null = null;
+    error: DOMException | null = null;
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+
+    readAsDataURL() {
+      this.result = dataUrl;
+      this.onload?.();
+    }
+  }
+
+  vi.stubGlobal('FileReader', MockFileReader);
 }

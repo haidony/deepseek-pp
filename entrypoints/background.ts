@@ -193,9 +193,13 @@ import {
 import { validateAutomationSchedule } from '../core/automation/schedule';
 import {
   createChatSession,
+  createPowHeadersForPath,
   createPowHeaders,
+  DEEPSEEK_FILE_UPLOAD_PATH,
+  DEEPSEEK_IMAGE_UPLOAD_MAX_BYTES,
   submitPromptStreaming,
   loadClientHeadersFromStorage,
+  uploadDeepSeekFile,
 } from '../core/deepseek/adapter';
 import {
   submitOfficialDeepSeekStreaming,
@@ -1155,15 +1159,22 @@ async function handleMessage(
     }
 
     case 'CHAT_SUBMIT_PROMPT': {
-      const { text, config } = message.payload as { text: string; config?: Partial<OfficialApiChatConfig> };
+      const { text, config, refFileIds } = message.payload as {
+        text: string;
+        config?: Partial<OfficialApiChatConfig>;
+        refFileIds?: unknown;
+      };
       if (!(await getChatEnabled())) {
         return { ok: false, error: 'chat_disabled' };
       }
       if (!text?.trim()) return { ok: false, error: 'empty_prompt' };
       // Fire and forget — the streaming response is broadcast
-      handleChatSubmitPrompt(text, config, sender.tab?.id).catch(() => {});
+      handleChatSubmitPrompt(text, config, coerceRefFileIds(refFileIds), sender.tab?.id).catch(() => {});
       return { ok: true };
     }
+
+    case 'UPLOAD_DEEPSEEK_IMAGE':
+      return handleDeepSeekImageUpload(message.payload, sender.tab?.id);
 
     case 'CHAT_NEW_SESSION':
       chatSessionId = null;
@@ -2115,9 +2126,108 @@ function getSyncCounts(snapshot: SyncDataSnapshot): SyncCounts {
   };
 }
 
+interface DeepSeekImageUploadRequest {
+  dataUrl: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+async function handleDeepSeekImageUpload(payload: unknown, excludeTabId?: number) {
+  if (!(await getChatEnabled())) {
+    return { ok: false, error: 'chat_disabled' };
+  }
+
+  const request = normalizeDeepSeekImageUploadRequest(payload);
+  const headers = await loadOrRefreshClientHeaders(excludeTabId);
+  if (!headers) {
+    return { ok: false, error: backgroundT('background.auth.missingDeepSeek') };
+  }
+
+  const file = dataUrlToBlob(request.dataUrl, request.mimeType);
+  if (file.size !== request.sizeBytes) {
+    throw new Error('Image upload payload size changed during transfer.');
+  }
+
+  const uploaded = await uploadDeepSeekFile({
+    file,
+    filename: request.name,
+    modelType: 'vision',
+    clientHeaders: headers,
+    powHeaders: await createPowHeadersForPath(headers, DEEPSEEK_FILE_UPLOAD_PATH),
+  });
+
+  return { ok: true, file: uploaded };
+}
+
+function normalizeDeepSeekImageUploadRequest(payload: unknown): DeepSeekImageUploadRequest {
+  const value = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
+  const dataUrl = typeof value.dataUrl === 'string' ? value.dataUrl : '';
+  const name = typeof value.name === 'string' && value.name.trim() ? value.name.trim() : 'image';
+  const mimeType = typeof value.mimeType === 'string' && value.mimeType.trim()
+    ? value.mimeType.trim()
+    : typeof value.type === 'string' && value.type.trim()
+      ? value.type.trim()
+      : '';
+  const sizeBytes = typeof value.sizeBytes === 'number' && Number.isFinite(value.sizeBytes)
+    ? value.sizeBytes
+    : typeof value.size === 'number' && Number.isFinite(value.size)
+      ? value.size
+      : 0;
+
+  if (!dataUrl.startsWith('data:')) {
+    throw new Error('Image upload payload must include a data URL.');
+  }
+  if (!mimeType.startsWith('image/')) {
+    throw new Error(`${name} is not an image file.`);
+  }
+  if (sizeBytes <= 0) {
+    throw new Error(`${name} is empty.`);
+  }
+  if (sizeBytes > DEEPSEEK_IMAGE_UPLOAD_MAX_BYTES) {
+    throw new Error(`${name} exceeds the ${formatUploadBytes(DEEPSEEK_IMAGE_UPLOAD_MAX_BYTES)} image upload limit.`);
+  }
+
+  return { dataUrl, name, mimeType, sizeBytes };
+}
+
+function dataUrlToBlob(dataUrl: string, expectedMimeType: string): Blob {
+  const match = /^data:([^;,]+);base64,(.*)$/s.exec(dataUrl);
+  if (!match) {
+    throw new Error('Image upload payload must be base64 encoded.');
+  }
+
+  const mimeType = match[1] || expectedMimeType;
+  if (mimeType !== expectedMimeType) {
+    throw new Error(`Image MIME type changed from ${expectedMimeType} to ${mimeType}.`);
+  }
+
+  const binary = atob(match[2]);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mimeType });
+}
+
+function coerceRefFileIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function formatUploadBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${Math.round(bytes / 1024 / 1024)}MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${bytes}B`;
+}
+
 async function handleChatSubmitPrompt(
   prompt: string,
   configInput?: Partial<OfficialApiChatConfig>,
+  refFileIds: string[] = [],
   excludeTabId?: number,
 ) {
   const apiKey = await getDeepSeekApiKey();
@@ -2132,13 +2242,13 @@ async function handleChatSubmitPrompt(
       return;
     }
 
-    await handleWebChatSubmitPrompt(prompt, excludeTabId);
+    await handleWebChatSubmitPrompt(prompt, refFileIds, excludeTabId);
   } finally {
     await markChatLoopFinished();
   }
 }
 
-async function handleWebChatSubmitPrompt(prompt: string, excludeTabId?: number) {
+async function handleWebChatSubmitPrompt(prompt: string, refFileIds: string[] = [], excludeTabId?: number) {
   const headers = await loadOrRefreshClientHeaders(excludeTabId);
   if (!headers) {
     broadcastChatChunk({ text: '', done: true, error: backgroundT('background.auth.missingDeepSeek') }, excludeTabId);
@@ -2152,13 +2262,15 @@ async function handleWebChatSubmitPrompt(prompt: string, excludeTabId?: number) 
     }
 
     const { augmented, enabledDescriptors } = await buildSidepanelPrompt(prompt);
+    const storedModelType = await getModelType();
+    const modelType = refFileIds.length > 0 ? 'vision' : storedModelType;
 
     const initialInput = {
       chatSessionId,
       parentMessageId: chatParentMessageId,
-      modelType: null,
+      modelType,
       prompt: augmented,
-      refFileIds: [],
+      refFileIds,
       thinkingEnabled: false,
       searchEnabled: false,
       clientHeaders: headers,

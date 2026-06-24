@@ -26,7 +26,7 @@ import type {
   WebdavSyncConfig,
 } from '../../../../core/types';
 import { validateImportedMemory } from '../../../../core/sync/schema';
-import { getRedirectUri } from '../../../../core/sync/oauth-client';
+import { getOptionalRedirectUri } from '../../../../core/sync/oauth-client';
 
 /**
  * Central settings state + handlers.
@@ -791,7 +791,7 @@ export function useSettingsState() {
     syncConfig,
     updateSyncField,
     switchSyncProvider,
-    syncRedirectUri: getRedirectUri(),
+    syncRedirectUri: getOptionalRedirectUri(),
     syncStatus,
     syncBusy,
     syncMessage,

@@ -26,10 +26,10 @@ const API_BASE = 'https://graph.microsoft.com/v1.0/me/drive/special/approot';
 /** Minimal credentials needed to run the authorization flow (no timestamp). */
 type OneDriveAuthInput = Pick<OneDriveSyncConfig, 'clientId' | 'clientSecret'>;
 
-function buildAuthUrl(config: OneDriveAuthInput): string {
+function buildAuthUrl(config: OneDriveAuthInput, t: SyncErrorTranslator): string {
   const params = new URLSearchParams({
     client_id: config.clientId,
-    redirect_uri: getRedirectUri(),
+    redirect_uri: getRedirectUri(t),
     response_type: 'code',
     response_mode: 'query',
     scope: SCOPES.join(' '),
@@ -62,12 +62,12 @@ export async function authorizeOneDrive(
   config: OneDriveAuthInput,
   t: SyncErrorTranslator = defaultSyncErrorTranslator,
 ): Promise<string> {
-  const code = await runAuthCodeFlow(buildAuthUrl(config), t);
+  const code = await runAuthCodeFlow(buildAuthUrl(config, t), t);
   const tokens = await exchangeCodeForTokens(TOKEN_URL, {
     code,
     client_id: config.clientId,
     client_secret: config.clientSecret,
-    redirect_uri: getRedirectUri(),
+    redirect_uri: getRedirectUri(t),
     scope: SCOPES.join(' '),
   }, t);
   if (!tokens.refreshToken) {

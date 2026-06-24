@@ -16,17 +16,23 @@ import {
   type PowAnswer,
   type PowChallenge,
 } from './pow';
+import { DEEPSEEK_IMAGE_UPLOAD_MAX_BYTES } from './upload-limits';
 
 const COMPLETION_PATH = new URL(DEEPSEEK_API_URL).pathname;
 const POW_CHALLENGE_PATH = '/api/v0/chat/create_pow_challenge';
 const CHAT_SESSION_CREATE_PATH = '/api/v0/chat_session/create';
 const HISTORY_PATH = '/api/v0/chat/history_messages';
+export const DEEPSEEK_FILE_UPLOAD_PATH = '/api/v0/file/upload_file';
+export const DEEPSEEK_FILE_FETCH_PATH = '/api/v0/file/fetch_files';
+export { DEEPSEEK_IMAGE_UPLOAD_MAX_BYTES } from './upload-limits';
 const DEFAULT_MODEL_TYPE = 'default';
 const DEFAULT_APP_VERSION = '2.0.0';
 const DEEPSEEK_CLIENT_PLATFORM = 'web';
 const USER_TOKEN_STORAGE_KEY = 'userToken';
 const SUPPORTED_MODEL_TYPES = new Set(['DEFAULT', 'default', 'expert', 'vision']);
 const TOKEN_SPEED_EMIT_INTERVAL_MS = 250;
+const FILE_READY_POLL_INTERVAL_MS = 500;
+const FILE_READY_TIMEOUT_MS = 15_000;
 export const BYPASS_HOOK_HEADER = 'X-DPP-Bypass-Hook';
 
 let rememberedClientHeaders: Record<string, string> | null = null;
@@ -62,6 +68,27 @@ export interface SubmitPromptInput {
   searchEnabled: boolean;
   clientHeaders: Record<string, string>;
   powHeaders: Record<string, string>;
+}
+
+export interface DeepSeekFileUploadInput {
+  file: Blob;
+  filename: string;
+  modelType: string | null;
+  clientHeaders: Record<string, string>;
+  powHeaders: Record<string, string>;
+}
+
+export interface DeepSeekUploadedFile {
+  id: string;
+  fileName: string | null;
+  fileSize: number | null;
+  mimeType: string | null;
+  status: string | null;
+  signedPath: string | null;
+  auditResult: string | null;
+  retryable: boolean | null;
+  width: number | null;
+  height: number | null;
 }
 
 export interface StreamCallbacks {
@@ -128,8 +155,16 @@ export async function createPowHeaders(
   clientHeaders: Record<string, string>,
   wasmUrl?: string,
 ): Promise<Record<string, string>> {
+  return createPowHeadersForPath(clientHeaders, COMPLETION_PATH, wasmUrl);
+}
+
+export async function createPowHeadersForPath(
+  clientHeaders: Record<string, string>,
+  targetPath: string,
+  wasmUrl?: string,
+): Promise<Record<string, string>> {
   try {
-    const challenge = await createPowChallenge(clientHeaders);
+    const challenge = await createPowChallenge(clientHeaders, targetPath);
     const answer = await solvePowChallenge(challenge, wasmUrl);
     return {
       'X-DS-PoW-Response': base64EncodeUtf8(JSON.stringify({
@@ -138,7 +173,7 @@ export async function createPowHeaders(
         salt: answer.salt,
         answer: answer.answer,
         signature: answer.signature,
-        target_path: COMPLETION_PATH,
+        target_path: targetPath,
       })),
     };
   } catch (err) {
@@ -206,6 +241,111 @@ export async function loadClientHeadersFromStorage(): Promise<Record<string, str
   } catch {
     return null;
   }
+}
+
+export async function uploadDeepSeekFile(input: DeepSeekFileUploadInput, signal?: AbortSignal): Promise<DeepSeekUploadedFile> {
+  if (!input.file.type.startsWith('image/')) {
+    throw new DeepSeekPayloadError(`${input.filename} is not an image file.`);
+  }
+  if (input.file.size > DEEPSEEK_IMAGE_UPLOAD_MAX_BYTES) {
+    throw new DeepSeekPayloadError(`${input.filename} exceeds the ${formatBytes(DEEPSEEK_IMAGE_UPLOAD_MAX_BYTES)} image upload limit.`);
+  }
+
+  const form = new FormData();
+  form.append('file', input.file, input.filename);
+
+  const response = await fetch(new URL(DEEPSEEK_FILE_UPLOAD_PATH, DEEPSEEK_API_URL).href, {
+    method: 'POST',
+    credentials: 'include',
+    signal,
+    headers: {
+      [BYPASS_HOOK_HEADER]: '1',
+      ...input.clientHeaders,
+      ...input.powHeaders,
+      'x-thinking-enabled': '0',
+      'x-model-type': normalizeModelType(input.modelType),
+      'x-file-size': String(input.file.size),
+    },
+    body: form,
+  });
+
+  const json = await readJsonResponse(response, 'DeepSeek file upload');
+  const data = json?.data;
+  const bizData = data?.biz_data ?? data?.bizData ?? json?.biz_data ?? json?.bizData;
+  const uploaded = normalizeUploadedFile(bizData);
+
+  if (isAuthBizError(data, json)) {
+    throw new DeepSeekAuthError(`DeepSeek auth token was rejected while uploading file: ${JSON.stringify(data ?? json)}`);
+  }
+
+  if (!response.ok || data?.biz_code !== 0 || !uploaded) {
+    throw new DeepSeekPayloadError(`Failed to upload DeepSeek file: ${JSON.stringify(data ?? json)}`, { retryable: true });
+  }
+
+  return waitForUploadedFileReady(uploaded, input.clientHeaders, signal);
+}
+
+async function fetchUploadedFileMetadata(
+  fileId: string,
+  clientHeaders: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<DeepSeekUploadedFile | null> {
+  const url = new URL(DEEPSEEK_FILE_FETCH_PATH, DEEPSEEK_API_URL);
+  url.searchParams.set('file_ids', fileId);
+
+  const response = await fetch(url.href, {
+    method: 'GET',
+    credentials: 'include',
+    signal,
+    headers: {
+      accept: 'application/json',
+      [BYPASS_HOOK_HEADER]: '1',
+      ...clientHeaders,
+    },
+  });
+  const json = await readJsonResponse(response, 'DeepSeek file metadata');
+  const data = json?.data;
+  const bizData = data?.biz_data ?? data?.bizData ?? json?.biz_data ?? json?.bizData;
+  const files = Array.isArray(bizData?.files) ? bizData.files : [];
+  const file = files
+    .map((item: unknown) => normalizeUploadedFile(item))
+    .find((item: DeepSeekUploadedFile | null): item is DeepSeekUploadedFile => item?.id === fileId);
+
+  if (isAuthBizError(data, json)) {
+    throw new DeepSeekAuthError(`DeepSeek auth token was rejected while fetching file metadata: ${JSON.stringify(data ?? json)}`);
+  }
+
+  if (!response.ok || data?.biz_code !== 0) {
+    throw new DeepSeekPayloadError(`Failed to fetch DeepSeek file metadata: ${JSON.stringify(data ?? json)}`, { retryable: true });
+  }
+
+  return file ?? null;
+}
+
+async function waitForUploadedFileReady(
+  uploaded: DeepSeekUploadedFile,
+  clientHeaders: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<DeepSeekUploadedFile> {
+  assertUploadedFileNotRejected(uploaded);
+  if (isUploadedFileReady(uploaded)) return uploaded;
+  if (!uploaded.status) return uploaded;
+
+  const deadline = Date.now() + FILE_READY_TIMEOUT_MS;
+  let latest = uploaded;
+  while (Date.now() < deadline) {
+    await sleep(FILE_READY_POLL_INTERVAL_MS, signal);
+    const next = await fetchUploadedFileMetadata(uploaded.id, clientHeaders, signal);
+    if (!next) continue;
+    latest = next;
+    assertUploadedFileNotRejected(latest);
+    if (isUploadedFileReady(latest)) return latest;
+  }
+
+  throw new DeepSeekPayloadError(
+    `DeepSeek file ${uploaded.fileName ?? uploaded.id} is still processing after ${Math.round(FILE_READY_TIMEOUT_MS / 1000)}s.`,
+    { retryable: true },
+  );
 }
 
 export async function submitPrompt(input: SubmitPromptInput, signal?: AbortSignal): Promise<ModelTurn> {
@@ -540,12 +680,12 @@ function normalizeModelType(modelType: string | null): string {
   return DEFAULT_MODEL_TYPE;
 }
 
-async function createPowChallenge(clientHeaders: Record<string, string>): Promise<PowChallenge> {
+async function createPowChallenge(clientHeaders: Record<string, string>, targetPath: string): Promise<PowChallenge> {
   const response = await fetch(new URL(POW_CHALLENGE_PATH, DEEPSEEK_API_URL).href, {
     method: 'POST',
     credentials: 'include',
     headers: { 'content-type': 'application/json', ...clientHeaders },
-    body: JSON.stringify({ target_path: COMPLETION_PATH }),
+    body: JSON.stringify({ target_path: targetPath }),
   });
   const json = await readJsonResponse(response, 'DeepSeek PoW challenge');
   const data = json?.data;
@@ -568,6 +708,44 @@ async function createPowChallenge(clientHeaders: Record<string, string>): Promis
     expireAt: Number(challenge.expire_at ?? challenge.expireAt ?? 0),
     expireAfter: Number(challenge.expire_after ?? challenge.expireAfter ?? 0),
   };
+}
+
+function normalizeUploadedFile(raw: unknown): DeepSeekUploadedFile | null {
+  const value = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  const id = firstString(value.id, value.file_id, value.fileId);
+  if (!id) return null;
+
+  return {
+    id,
+    fileName: firstString(value.file_name, value.fileName, value.name),
+    fileSize: firstFiniteNumber(value.file_size, value.fileSize, value.size),
+    mimeType: firstString(value.mime_type, value.mimeType),
+    status: firstString(value.status),
+    signedPath: firstString(value.signed_path, value.signedPath),
+    auditResult: firstString(value.audit_result, value.auditResult),
+    retryable: typeof value.retryable === 'boolean' ? value.retryable : null,
+    width: firstFiniteNumber(value.width),
+    height: firstFiniteNumber(value.height),
+  };
+}
+
+function isUploadedFileReady(file: DeepSeekUploadedFile): boolean {
+  const status = file.status?.toUpperCase();
+  const auditResult = file.auditResult?.toUpperCase();
+  return status === 'SUCCESS' && (!auditResult || auditResult === 'PASS');
+}
+
+function assertUploadedFileNotRejected(file: DeepSeekUploadedFile): void {
+  const status = file.status?.toUpperCase();
+  const auditResult = file.auditResult?.toUpperCase();
+  if (auditResult && auditResult !== 'PASS') {
+    throw new DeepSeekPayloadError(`DeepSeek rejected ${file.fileName ?? file.id}: audit_result=${file.auditResult}.`);
+  }
+  if (status === 'FAILED' || status === 'FAIL' || status === 'ERROR') {
+    throw new DeepSeekPayloadError(`DeepSeek failed to process ${file.fileName ?? file.id}: status=${file.status}.`, {
+      retryable: file.retryable ?? false,
+    });
+  }
 }
 
 async function solvePowChallenge(challenge: PowChallenge, wasmUrl?: string): Promise<PowAnswer> {
@@ -606,6 +784,17 @@ function firstString(...values: unknown[]): string | null {
   return null;
 }
 
+function firstFiniteNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
 function firstMessageId(...values: unknown[]): number | null {
   for (const value of values) {
     const id = coerceMessageId(value);
@@ -628,6 +817,33 @@ function coerceMessageId(value: unknown): number | null {
 
 function tryParseJson(value: string): unknown {
   try { return JSON.parse(value); } catch { return null; }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${Math.round(bytes / 1024 / 1024)}MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${bytes}B`;
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+  return new Promise((resolve, reject) => {
+    let timeout: ReturnType<typeof setTimeout>;
+    let abort: () => void;
+    const cleanup = () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', abort);
+    };
+    abort = () => {
+      cleanup();
+      reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+    };
+    timeout = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', abort, { once: true });
+  });
 }
 
 function base64EncodeUtf8(value: string): string {

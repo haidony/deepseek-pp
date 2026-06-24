@@ -30,10 +30,10 @@ interface DriveFileMeta {
   name: string;
 }
 
-function buildAuthUrl(config: GDriveAuthInput): string {
+function buildAuthUrl(config: GDriveAuthInput, t: SyncErrorTranslator): string {
   const params = new URLSearchParams({
     client_id: config.clientId,
-    redirect_uri: getRedirectUri(),
+    redirect_uri: getRedirectUri(t),
     response_type: 'code',
     access_type: 'offline',
     prompt: 'consent',
@@ -61,12 +61,12 @@ export async function authorizeGDrive(
   config: GDriveAuthInput,
   t: SyncErrorTranslator = defaultSyncErrorTranslator,
 ): Promise<string> {
-  const code = await runAuthCodeFlow(buildAuthUrl(config), t);
+  const code = await runAuthCodeFlow(buildAuthUrl(config, t), t);
   const tokens = await exchangeCodeForTokens(TOKEN_URL, {
     code,
     client_id: config.clientId,
     client_secret: config.clientSecret,
-    redirect_uri: getRedirectUri(),
+    redirect_uri: getRedirectUri(t),
   }, t);
   if (!tokens.refreshToken) {
     throw new Error(t('background.sync.gdriveMissingRefreshToken'));

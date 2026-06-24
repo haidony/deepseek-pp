@@ -110,6 +110,16 @@ describe('sidepanel navigation', () => {
     expect(container.textContent).toContain('朗读回复');
   });
 
+  it('renders Settings when chrome.identity is unavailable', async () => {
+    delete (chrome as unknown as { identity?: unknown }).identity;
+
+    await renderElement(React.createElement(SettingsPage));
+    await flushPromises();
+
+    expect(navButtonLabels('设置子导航')).toContain('通用');
+    expect(container.textContent).toContain('网页模型模式');
+  });
+
   it('renders usage statistics from the Settings sub-navigation', async () => {
     await renderElement(React.createElement(SettingsPage));
 
@@ -162,6 +172,12 @@ function unmountRoot() {
     root = null;
     container.innerHTML = '';
   }
+}
+
+async function flushPromises() {
+  await act(async () => {
+    await Promise.resolve();
+  });
 }
 
 function getCssBlock(css: string, selector: string): string {

@@ -20,11 +20,27 @@ export function defaultSyncErrorTranslator(key: LocaleMessageKey, params?: Messa
   return translate(DEFAULT_LOCALE, key, params);
 }
 
-export function getRedirectUri(): string {
+export function getOptionalRedirectUri(): string | null {
+  const identity = getChromeIdentity();
+  if (!identity) return null;
   if (cachedRedirectUri === null) {
-    cachedRedirectUri = chrome.identity.getRedirectURL();
+    cachedRedirectUri = identity.getRedirectURL();
   }
   return cachedRedirectUri;
+}
+
+export function getRedirectUri(t: SyncErrorTranslator = defaultSyncErrorTranslator): string {
+  const redirectUri = getOptionalRedirectUri();
+  if (!redirectUri) {
+    throw new Error(t('background.sync.identityUnavailable'));
+  }
+  return redirectUri;
+}
+
+function getChromeIdentity(): Pick<typeof chrome.identity, 'getRedirectURL'> | null {
+  if (typeof chrome === 'undefined') return null;
+  if (!chrome.identity || typeof chrome.identity.getRedirectURL !== 'function') return null;
+  return chrome.identity;
 }
 
 /** Parsed redirect URL: either {code} on success or {error} on failure. */
