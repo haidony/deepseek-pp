@@ -311,6 +311,9 @@ npm run shell:install -- --browser chrome --extension-id <扩展ID>
 | 回归覆盖 | 新增网页模型模式、识图图片附件、侧边栏 prompt 组合、inline agent 停止边界和 Skill 批量开关测试。 |
 
 <details>
+<summary>展开历史版本变更回顾（1.0.3 - 0.2.0）</summary>
+
+<details>
 <summary>展开 1.0.3 变更回顾</summary>
 
 ### 1.0.3 变更回顾
@@ -761,6 +764,8 @@ npm run shell:install -- --browser chrome --extension-id <扩展ID>
   <img src="assets/screenshot-sidepanel-mcp.png" width="300" alt="MCP 管理侧边栏">
   <img src="assets/screenshot-sidepanel-automation.png" width="300" alt="自动化任务侧边栏">
 </p>
+
+</details>
 
 </details>
 

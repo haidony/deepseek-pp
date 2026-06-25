@@ -311,6 +311,9 @@ npm run shell:install -- --browser chrome --extension-id <extension-id>
 | Regression coverage | Adds tests for web model mode, Vision image attachments, side-panel prompt composition, inline agent stop boundaries, and batched Skill toggles. |
 
 <details>
+<summary>Show historical release highlights (1.0.3 - 0.2.0)</summary>
+
+<details>
 <summary>Show 1.0.3 release highlights</summary>
 
 ### 1.0.3 Release Highlights
@@ -761,6 +764,8 @@ Thanks to this release's contributors: [@todayzhou](https://github.com/todayzhou
   <img src="assets/screenshot-sidepanel-mcp.png" width="300" alt="MCP management side panel">
   <img src="assets/screenshot-sidepanel-automation.png" width="300" alt="Automation task side panel">
 </p>
+
+</details>
 
 </details>
 
