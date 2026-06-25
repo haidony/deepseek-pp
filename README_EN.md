@@ -29,7 +29,7 @@
   <a href="#feature-overview">Feature Overview</a> ·
   <a href="#use-cases">Use Cases</a> ·
   <a href="#installation">Installation</a> ·
-  <a href="#103-release-highlights">1.0.3 Highlights</a>
+  <a href="#104-release-highlights">1.0.4 Highlights</a>
 </p>
 
 ## Product Positioning
@@ -46,7 +46,7 @@ Language can follow the browser or be set to English or Simplified Chinese. Deep
 - [Feature Overview](#feature-overview)
 - [Use Cases](#use-cases)
 - [Core Features](#core-features)
-- [1.0.3 Release Highlights](#103-release-highlights)
+- [1.0.4 Release Highlights](#104-release-highlights)
 - [Installation](#installation)
 - [Friendly Links](#friendly-links)
 
@@ -58,7 +58,7 @@ Language can follow the browser or be set to English or Simplified Chinese. Deep
 | DeepSeek browser extension / DeepSeek Chrome extension | Adds side-panel chat, right-click text sending, tool-result rendering, and Chrome / Edge / Firefox support for DeepSeek Web. |
 | Multilingual DeepSeek extension | Switches between English and Simplified Chinese, keeping UI, built-in tool descriptions, and model continuation behavior in the same language. |
 | DeepSeek MCP tools | Lets you manage MCP services, tool permissions, and execution status in the side panel, then sends tool results back into the same conversation. |
-| DeepSeek multimodal media | After installing the Multimodal Native Host, attach images or videos in the DeepSeek input box so DeepSeek++ can analyze the media first and continue the conversation with the results. |
+| DeepSeek multimodal media | Attach images in Vision mode from side-panel web chat; after installing the Multimodal Native Host, also attach images or videos in the DeepSeek input box so DeepSeek++ can analyze the media first and continue the conversation with the results. |
 | DeepSeek browser control | Lets DeepSeek++ operate a user-selected browser tab after the user enables the feature and chooses the target. |
 | DeepSeek memory | Automatically saves, filters, and injects long-term memory so different conversations can reuse user preferences, project context, and common facts. |
 | DeepSeek Skills / `/skill` workflows | Switches quickly between built-in, custom, and GitHub-imported Skills for expert modes and task templates. |
@@ -89,6 +89,8 @@ Language can follow the browser or be set to English or Simplified Chinese. Deep
 - **Right-click selected text** - Select text and send it to the side-panel chat for quick explanation, summary, or rewriting.
 - **Right-click scenarios** - Configure reusable scenario templates that wrap selected text in fixed prompts.
 - **Official API Key** - After a Key is configured, side-panel chat and right-click scenarios can work on normal web pages; without a Key, right-click scenarios stay limited to DeepSeek Web.
+- **Web model mode** - When using web-login chat, switch between Default, Expert, and Vision modes.
+- **Vision image attachments** - In Vision mode, choose or paste images explicitly; images enter the DeepSeek conversation only when you send that message.
 - **Independent new conversations** - Create new side-panel conversations to avoid mixing with the current page conversation.
 - **Streaming display** - Responses render continuously in the side panel. If login is missing, the extension prompts you to return to DeepSeek and sign in.
 
@@ -295,7 +297,23 @@ npm run shell:install -- --browser chrome --extension-id <extension-id>
   <img src="assets/screenshot-sidepanel-automation.png" width="300" alt="Automation task side panel">
 </p>
 
-## 1.0.3 Release Highlights
+## 1.0.4 Release Highlights
+
+1.0.4 updates side-panel chat and Skill management, letting web chat switch between Default, Expert, and Vision modes, attach user-selected images in Vision mode, and keep memory/Skill injection, agent stop feedback, and batched Skill toggles more reliable.
+
+| Area | Main changes |
+|------|--------------|
+| Web model mode | Settings and side-panel chat can choose Default, Expert, or Vision mode for web-login conversations. Side-panel API chat still uses its chat-page model settings. |
+| Vision image attachments | Side-panel web chat can choose or paste images in Vision mode and shows upload state before sending. Images enter the DeepSeek conversation only when the user sends that message. |
+| Memory and Skill injection | Side-panel input combines more reliably with memory, Skills, project context, and saved-item insertion, reducing context ordering and overwrite issues. |
+| Agent stop feedback | Automated tool continuation now shows an explicit pause notice when it reaches its step boundary, instead of presenting pending continuation text as a final answer. |
+| Batched Skill toggles | Third-party or imported Skill groups can be enabled or disabled with one batched save, reducing inconsistent intermediate states. |
+| Regression coverage | Adds tests for web model mode, Vision image attachments, side-panel prompt composition, inline agent stop boundaries, and batched Skill toggles. |
+
+<details>
+<summary>Show 1.0.3 release highlights</summary>
+
+### 1.0.3 Release Highlights
 
 1.0.3 improves cloud sync, saved prompt reuse, and MCP connectivity, making saved items easier to insert into chat, adding Google Drive / OneDrive sync options, and tightening local Shell and Streamable HTTP MCP reliability.
 
@@ -309,6 +327,8 @@ npm run shell:install -- --browser chrome --extension-id <extension-id>
 | Regression coverage | Adds tests for saved item insertion, cloud sync backends, MCP transport policy, GitHub Skill sync validation, and Shell environment isolation. |
 
 Thanks to [@maoxin1234](https://github.com/maoxin1234) for improving Shell MCP environment isolation and Windows session stability.
+
+</details>
 
 <details>
 <summary>Show 1.0.2 release highlights</summary>

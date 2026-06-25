@@ -1,14 +1,14 @@
 # DeepSeek++ Privacy Policy
 
-Effective date: 2026-06-24
+Effective date: 2026-06-25
 
-DeepSeek++ is a browser extension that enhances DeepSeek chat workflows with user-controlled memory, skills, project context, saved items, prompt presets, MCP tools, multimodal media analysis, browser control tools, inline tool execution, local exports, downloadable artifacts, optional sync, automation, and optional side-panel chat.
+DeepSeek++ is a browser extension that enhances DeepSeek chat workflows with user-controlled memory, skills, project context, saved items, prompt presets, MCP tools, side-panel Vision image attachments, multimodal media analysis, browser control tools, inline tool execution, local exports, downloadable artifacts, optional sync, automation, and optional side-panel chat.
 
 This Privacy Policy explains what data the extension handles, how that data is used, when it may be transferred, and what controls users have.
 
 ## 1. Single Purpose
 
-DeepSeek++ has one purpose: to enhance DeepSeek chat workflows with memory, skills, projects, saved items, presets, tools, multimodal media analysis, browser control, local exports, optional sync, automation, and optional side-panel chat that the user controls.
+DeepSeek++ has one purpose: to enhance DeepSeek chat workflows with memory, skills, projects, saved items, presets, tools, side-panel Vision image attachments, multimodal media analysis, browser control, local exports, optional sync, automation, and optional side-panel chat that the user controls.
 
 ## 2. Data Handled by the Extension
 
@@ -20,6 +20,7 @@ DeepSeek++ may handle the following data only when needed for its user-facing fe
 - Optional OpenAI and Gemini API keys, model names, and request URLs, when the user configures multimodal image or video analysis.
 - Optional sync settings, including WebDAV server URL, username, password, remote path, Google Drive or OneDrive OAuth app credentials, sync authorization tokens, provider selection, and sync state, when the user configures sync.
 - Optional MCP configuration, including endpoint URLs, request headers, environment variables, native host names, discovered tool metadata, and tool results, when the user configures MCP tools.
+- User-selected image files, file names, MIME types, file sizes, upload state, and DeepSeek file references, only when the user explicitly attaches images in side-panel Vision mode.
 - User-selected image or video files, file names, MIME types, file sizes, and analysis results, only when the user explicitly attaches media for multimodal analysis.
 - Browser tab titles, URLs, Accessibility Tree snapshots, and browser-control tool results only when the user enables Browser Control and selects or uses a controlled tab.
 - DeepSeek session data available to the web page, only when needed to submit user-requested automation or continuation prompts.
@@ -36,6 +37,7 @@ DeepSeek++ uses handled data only to provide its disclosed features:
 - Detect tool-call markup in DeepSeek responses, execute enabled tools, and render readable tool results.
 - Return selected tool results to the active DeepSeek conversation when the user enables tool execution.
 - Send side-panel chat messages to the official DeepSeek API when the user configures a DeepSeek API Key.
+- Attach user-selected images to a side-panel web chat message in Vision mode when the user explicitly selects or pastes images and sends that message.
 - Analyze user-selected images or videos through the local Multimodal Native Host and the user's configured OpenAI/Gemini-compatible endpoints when the user attaches media for multimodal analysis.
 - Run automation tasks created by the user.
 - Export the user's DeepSeek conversation history, individual messages, saved items, or generated artifacts into local files when the user starts an export or download.
@@ -59,7 +61,7 @@ DeepSeek++ does not operate a backend service for collecting extension data. The
 
 Data may be transferred only as part of user-facing features:
 
-- To DeepSeek, when the user sends a chat message, runs an automation task, or allows the extension to return selected context or tool results to a DeepSeek conversation.
+- To DeepSeek, when the user sends a chat message, attaches selected images in side-panel Vision mode, runs an automation task, or allows the extension to return selected context or tool results to a DeepSeek conversation.
 - To the official DeepSeek API, when the user configures a DeepSeek API Key and sends a side-panel chat message.
 - To the local Multimodal Native Host, and from that host to user-configured OpenAI/Gemini-compatible endpoints, when the user attaches images or videos for multimodal analysis.
 - To a WebDAV server, Google Drive app data area, or OneDrive app folder selected and configured by the user, when the user enables sync.
@@ -101,6 +103,7 @@ Users can manage extension data from the DeepSeek++ side panel. Users can:
 - Change prompt controls such as memory injection, preset cadence, and response language.
 - Enable, disable, test, edit, and delete MCP servers.
 - Configure or remove multimodal API settings, install and enable the Multimodal Native Host, and attach or remove selected media before sending.
+- Switch side-panel web chat between Default, Expert, and Vision modes, and attach or remove selected Vision images before sending.
 - Enable or disable Browser Control, select the target tab, tune snapshot budgets, and detach from the current tab.
 - Create, pause, run, edit, and delete automation tasks.
 - Configure or remove the DeepSeek API Key used for official API side-panel chat.
@@ -123,7 +126,7 @@ DeepSeek++ does not:
 - Sell user data.
 - Use user data for personalized advertising.
 - Transfer user data to advertising platforms, data brokers, or information resellers.
-- Use user data for purposes unrelated to memory, skills, tools, multimodal analysis, automation, sync, or extension settings.
+- Use user data for purposes unrelated to memory, skills, tools, side-panel Vision image attachments, multimodal analysis, automation, sync, or extension settings.
 
 ## 10. Children
 
@@ -143,15 +146,15 @@ For privacy or support questions, open an issue at:
 
 # DeepSeek++ 隐私政策（中文参考）
 
-生效日期：2026-06-24
+生效日期：2026-06-25
 
-DeepSeek++ 是一个浏览器扩展，用于增强 DeepSeek 对话工作流，提供用户可控的长期记忆、技能、项目上下文、保存项、提示词预设、MCP 工具、多模态媒体分析、浏览器控制工具、内联工具执行、本地导出、可下载产物、可选同步、自动化任务和可选侧边栏对话。
+DeepSeek++ 是一个浏览器扩展，用于增强 DeepSeek 对话工作流，提供用户可控的长期记忆、技能、项目上下文、保存项、提示词预设、MCP 工具、侧边栏识图图片附件、多模态媒体分析、浏览器控制工具、内联工具执行、本地导出、可下载产物、可选同步、自动化任务和可选侧边栏对话。
 
 本隐私政策说明扩展会处理哪些数据、如何使用这些数据、何时可能传输数据，以及用户可以如何控制自己的数据。
 
 ## 1. 单一用途
 
-DeepSeek++ 的单一用途是增强 DeepSeek 对话工作流，提供由用户控制的记忆、技能、项目、保存项、预设、工具、多模态媒体分析、浏览器控制、本地导出、可选同步、自动化和可选侧边栏对话能力。
+DeepSeek++ 的单一用途是增强 DeepSeek 对话工作流，提供由用户控制的记忆、技能、项目、保存项、预设、工具、侧边栏识图图片附件、多模态媒体分析、浏览器控制、本地导出、可选同步、自动化和可选侧边栏对话能力。
 
 ## 2. 扩展处理的数据
 
@@ -163,6 +166,7 @@ DeepSeek++ 只会在提供用户可见功能所需时处理以下数据：
 - 用户配置多模态图片或视频分析时提供的 OpenAI 和 Gemini API Key、模型名称和请求地址。
 - 用户配置同步时提供的同步设置，包括 WebDAV 服务器地址、用户名、密码、远程路径、Google Drive 或 OneDrive OAuth 应用凭据、同步授权令牌、同步提供方选择和同步状态。
 - 用户配置 MCP 工具时提供的 MCP 配置，包括端点地址、请求头、环境变量、本机 host 名称、工具元数据和工具结果。
+- 用户在侧边栏识图模式中明确附加图片时选择的图片文件、文件名、MIME 类型、文件大小、上传状态和 DeepSeek 文件引用。
 - 用户明确附加媒体进行多模态分析时选择的图片或视频文件、文件名、MIME 类型、文件大小和分析结果。
 - 用户启用浏览器控制并选择或使用受控标签页时处理的浏览器标签页标题、URL、Accessibility Tree 快照和浏览器控制工具结果。
 - DeepSeek 网页会话中可用的会话数据，仅在执行用户请求的自动化任务或续跑提示词时使用。
@@ -179,6 +183,7 @@ DeepSeek++ 只会将数据用于已经披露的功能：
 - 识别 DeepSeek 回复中的工具调用标记，执行已启用的工具，并展示可读的工具结果。
 - 在用户启用工具执行时，将选定工具结果回传到当前 DeepSeek 对话。
 - 用户配置 DeepSeek API Key 时，将侧边栏对话消息发送到 DeepSeek 官方 API。
+- 用户在侧边栏识图模式中明确选择或粘贴图片并发送该消息时，将用户选择的图片附加到本次 DeepSeek 对话。
 - 用户附加媒体进行多模态分析时，通过本机多模态 Native Host 和用户配置的 OpenAI/Gemini 兼容端点分析用户选择的图片或视频。
 - 运行用户创建的自动化任务。
 - 在用户主动开始导出或下载时，将 DeepSeek 对话历史、单条消息、保存项或生成产物导出为本地文件。
@@ -202,7 +207,7 @@ DeepSeek++ 不运营用于收集扩展数据的后台服务。扩展不会出售
 
 数据只会在用户可见功能需要时传输：
 
-- 当用户发送聊天消息、运行自动化任务，或允许扩展将选定上下文/工具结果回传到 DeepSeek 对话时，传输给 DeepSeek。
+- 当用户发送聊天消息、在侧边栏识图模式附加用户选择的图片、运行自动化任务，或允许扩展将选定上下文/工具结果回传到 DeepSeek 对话时，传输给 DeepSeek。
 - 用户配置 DeepSeek API Key 并发送侧边栏对话时，传输给 DeepSeek 官方 API。
 - 用户附加图片或视频进行多模态分析时，传输给本机多模态 Native Host，并由该 host 传输给用户配置的 OpenAI/Gemini 兼容端点。
 - 当用户启用同步时，传输给用户选择并配置的 WebDAV 服务器、Google Drive 应用数据空间或 OneDrive 应用文件夹。
@@ -244,6 +249,7 @@ DeepSeek++ 请求以下 Chrome 权限：
 - 调整记忆注入、预设注入频率、回复语言等提示词控制。
 - 启用、禁用、测试、编辑和删除 MCP 服务。
 - 配置或移除多模态 API 设置，安装和启用多模态 Native Host，并在发送前附加或移除选中的媒体。
+- 在侧边栏网页对话中切换默认、专家和识图模式，并在发送前附加或移除选择的识图图片。
 - 启用或停用浏览器控制、选择目标标签页、调整快照预算，并从当前标签页断开附着。
 - 创建、暂停、运行、编辑和删除自动化任务。
 - 配置或移除用于官方 API 侧边栏对话的 DeepSeek API Key。
@@ -266,7 +272,7 @@ DeepSeek++ 不会：
 - 出售用户数据。
 - 将用户数据用于个性化广告。
 - 将用户数据传输给广告平台、数据经纪商或信息转售商。
-- 将用户数据用于与记忆、技能、工具、多模态分析、自动化、同步或扩展设置无关的用途。
+- 将用户数据用于与记忆、技能、工具、侧边栏识图图片附件、多模态分析、自动化、同步或扩展设置无关的用途。
 
 ## 10. 儿童
 

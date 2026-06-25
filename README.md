@@ -29,7 +29,7 @@
   <a href="#功能速览">功能速览</a> ·
   <a href="#适合场景">适合场景</a> ·
   <a href="#安装">安装</a> ·
-  <a href="#103-变更回顾">1.0.3 变更</a>
+  <a href="#104-变更回顾">1.0.4 变更</a>
 </p>
 
 ## 产品定位
@@ -46,7 +46,7 @@ DeepSeek++ 是面向 [DeepSeek](https://chat.deepseek.com) 网页版的开源浏
 - [功能速览](#功能速览)
 - [适合场景](#适合场景)
 - [核心功能](#核心功能)
-- [1.0.3 变更回顾](#103-变更回顾)
+- [1.0.4 变更回顾](#104-变更回顾)
 - [安装](#安装)
 - [友情链接](#友情链接)
 
@@ -58,7 +58,7 @@ DeepSeek++ 是面向 [DeepSeek](https://chat.deepseek.com) 网页版的开源浏
 | DeepSeek browser extension / DeepSeek Chrome extension | 在 DeepSeek 网页版中加入侧边栏对话、右键发送文本、工具执行结果展示和 Chrome / Edge / Firefox 支持。 |
 | Multilingual DeepSeek extension / 中英文体验 | 可在简体中文和 English 之间切换，界面、内置工具说明和模型续跑行为保持同一语言。 |
 | DeepSeek MCP tools | 在侧边栏管理 MCP 服务、工具权限和执行状态，并把工具结果带回同一会话继续生成。 |
-| DeepSeek multimodal media / 图片视频分析 | 安装多模态 Native Host 后，可在 DeepSeek 输入框附加图片或视频，让 DeepSeek++ 先完成媒体分析再带着结果继续对话。 |
+| DeepSeek multimodal media / 图片视频分析 | 可在侧边栏网页登录对话的识图模式附加图片；安装多模态 Native Host 后，也可在 DeepSeek 输入框附加图片或视频，让 DeepSeek++ 先完成媒体分析再带着结果继续对话。 |
 | DeepSeek browser control / 浏览器控制 | 在侧边栏选择受控标签页，让 DeepSeek++ 按用户开启的边界读取页面结构并执行可见网页操作。 |
 | DeepSeek memory / 长期记忆 | 自动保存、筛选和注入长期记忆，让不同对话可以复用用户偏好、项目背景和常用信息。 |
 | DeepSeek Skills / `/skill` 工作流 | 通过内置、自定义或 GitHub 导入的 Skill 快速切换专家模式和任务模板。 |
@@ -89,6 +89,8 @@ DeepSeek++ 是面向 [DeepSeek](https://chat.deepseek.com) 网页版的开源浏
 - **右键发送文本** — 在网页中选中文本后右键发送到侧边栏对话，适合快速解释、总结或改写页面内容
 - **右键场景** — 可以配置常用场景模板，把选中文本套入固定 prompt 后送入对话
 - **官方 API Key** — 配置 Key 后，侧边栏对话和右键场景可在普通网页使用；未配置时右键场景仅在 DeepSeek 网页可用
+- **网页模型模式** — 使用网页登录对话时，可在默认、专家和识图模式之间切换
+- **识图图片附件** — 识图模式下可主动选择或粘贴图片，图片只会在用户发送本次消息时进入 DeepSeek 对话
 - **独立新会话** — 侧边栏对话支持新建会话，减少和当前页面已有对话互相干扰
 - **流式展示** — 回复会在侧边栏内持续渲染，登录状态缺失时会提示先回到 DeepSeek 页面完成登录
 
@@ -295,7 +297,23 @@ npm run shell:install -- --browser chrome --extension-id <扩展ID>
   <img src="assets/screenshot-sidepanel-automation.png" width="300" alt="自动化任务侧边栏">
 </p>
 
-## 1.0.3 变更回顾
+## 1.0.4 变更回顾
+
+1.0.4 是侧边栏对话和 Skill 管理体验更新，重点让网页对话可以在默认、专家和识图模式之间切换，识图模式可主动附加图片，同时让记忆/Skill 注入、Agent 停止反馈和批量 Skill 开关更稳定。
+
+| 方向 | 主要变化 |
+|------|----------|
+| 网页模型模式 | 设置页和侧边栏对话可选择默认、专家或识图模式；侧边栏 API 对话继续使用对话页里的模型设置。 |
+| 识图图片附件 | 侧边栏网页登录对话在识图模式下可选择或粘贴图片，发送前展示上传状态；图片只会在用户主动发送本次消息时进入 DeepSeek 对话。 |
+| 记忆与 Skill 注入 | 侧边栏输入、记忆、Skill、项目上下文和保存项插入之间的组合更稳定，减少上下文互相覆盖或顺序不清的问题。 |
+| Agent 停止反馈 | 自动工具续跑达到轮次边界时会明确显示暂停提示，避免把仍待续跑的中间文本当作最终答案。 |
+| Skill 批量开关 | 第三方或导入 Skill 分组支持一次性批量启用/停用，减少多次保存带来的状态不一致。 |
+| 回归覆盖 | 新增网页模型模式、识图图片附件、侧边栏 prompt 组合、inline agent 停止边界和 Skill 批量开关测试。 |
+
+<details>
+<summary>展开 1.0.3 变更回顾</summary>
+
+### 1.0.3 变更回顾
 
 1.0.3 是云同步、提示词复用和 MCP 连接增强版本，重点让保存项可以更快进入对话，让同步来源扩展到 Google Drive / OneDrive，并提升本机 Shell 与 Streamable HTTP MCP 的可靠性。
 
@@ -309,6 +327,8 @@ npm run shell:install -- --browser chrome --extension-id <扩展ID>
 | 回归覆盖 | 新增保存项插入、云同步后端、MCP 传输策略、GitHub Skill 同步校验和 Shell 环境隔离测试。 |
 
 感谢本版本贡献者：[@maoxin1234](https://github.com/maoxin1234) 改进 Shell MCP 环境隔离与 Windows 会话稳定性。
+
+</details>
 
 <details>
 <summary>展开 1.0.2 变更回顾</summary>
