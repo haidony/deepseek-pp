@@ -113,7 +113,9 @@ describe('local Skill importer', () => {
       },
     });
 
-    await expect(pickLocalSkillFolder()).rejects.toThrow('Reinstall Shell Native Host');
+    const pick = pickLocalSkillFolder();
+    await expect(pick).rejects.toThrow('copy the generated install command');
+    await expect(pick).rejects.not.toThrow('<your-extension-id>');
   });
 
   it('previews and imports local Skills while preserving script execution boundaries', async () => {

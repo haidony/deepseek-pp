@@ -1,5 +1,8 @@
 export async function requestGitHubApiPermission(): Promise<boolean> {
-  return requestGitHubHostPermissions(['https://api.github.com/*']);
+  return requestGitHubHostPermissions([
+    'https://api.github.com/*',
+    'https://raw.githubusercontent.com/*',
+  ]);
 }
 
 export async function requestGitHubProjectImportPermission(): Promise<boolean> {

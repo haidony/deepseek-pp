@@ -629,7 +629,8 @@ function formatToolFailure(result: ToolResult): string {
   if (isLegacyWindowsFolderPickerFailure(message)) {
     return [
       'The installed Shell Native Host is older than the extension and still passes folder picker labels as PowerShell command text.',
-      'Reinstall Shell Native Host from the MCP page or run `npx deepseek-pp-shell-host install --browser chrome --extension-id <your-extension-id>`, restart the browser, then try local Skill import again.',
+      'Open MCP > Shell Local > Shell Native Host, copy the generated install command from that page, run it, then restart the browser.',
+      'Do not run a placeholder command with <extension-id>; the MCP page command includes the current browser and extension id.',
     ].join(' ');
   }
   return message;

@@ -17,6 +17,7 @@ import {
 } from './registry';
 
 const GITHUB_API_BASE = 'https://api.github.com';
+const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com';
 const MAX_SKILLS_PER_SOURCE = 80;
 const MAX_SKILL_BYTES = 120_000;
 const MAX_RESOURCE_FILES_PER_SKILL = 16;
@@ -72,15 +73,6 @@ interface GitHubTreeResponse {
   sha: string;
   truncated: boolean;
   tree: GitHubTreeEntry[];
-}
-
-interface GitHubContentResponse {
-  type: string;
-  encoding?: string;
-  content?: string;
-  size: number;
-  path: string;
-  name: string;
 }
 
 interface LoadedGitHubSkill {
@@ -213,7 +205,7 @@ async function loadGitHubSkillSource(url: string, selectedPaths?: Set<string>): 
   const resolved = await resolveSourceLocation(parsedUrl, repo.default_branch);
   const [tree, packageInfo] = await Promise.all([
     fetchGitHubJson<GitHubTreeResponse>(`/repos/${parsedUrl.owner}/${parsedUrl.repo}/git/trees/${encodeURIComponent(resolved.ref)}?recursive=1`),
-    fetchPackageInfo(parsedUrl.owner, parsedUrl.repo, resolved.ref),
+    fetchPackageInfo(parsedUrl.owner, parsedUrl.repo, resolved.commit.sha),
   ]);
   const sourceId = createSourceId(parsedUrl.owner, parsedUrl.repo, resolved.ref, resolved.rootPath);
   const skillPaths = findSkillPaths(tree, resolved.rootPath, parsedUrl.mode);
@@ -258,7 +250,7 @@ async function loadGitHubSkillSource(url: string, selectedPaths?: Set<string>): 
   const loadedSkills: LoadedGitHubSkill[] = [];
   for (const skillPath of limitedPaths) {
     if (selectedPaths && !selectedPaths.has(skillPath)) continue;
-    loadedSkills.push(await loadGitHubSkill(parsedUrl.owner, parsedUrl.repo, resolved.ref, source, tree, skillPath, existingContext));
+    loadedSkills.push(await loadGitHubSkill(parsedUrl.owner, parsedUrl.repo, source.commitSha, source, tree, skillPath, existingContext));
   }
 
   const previewSkills = selectedPaths
@@ -755,14 +747,31 @@ async function fetchOptionalGitHubJson<T>(path: string): Promise<T | null> {
 }
 
 async function fetchGitHubContent(owner: string, repo: string, ref: string, path: string): Promise<string> {
-  const encodedPath = path.split('/').map(encodeURIComponent).join('/');
-  const content = await fetchGitHubJson<GitHubContentResponse>(
-    `/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`,
-  );
-  if (content.type !== 'file' || content.encoding !== 'base64' || typeof content.content !== 'string') {
-    throw new Error(`${path} 不是可读取的文本文件`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(createGitHubRawUrl(owner, repo, ref, path), {
+      signal: controller.signal,
+      headers: {
+        accept: 'text/plain, application/octet-stream',
+      },
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error(`GitHub raw content request failed (HTTP ${response.status})${detail ? `: ${detail.slice(0, 180)}` : ''}`);
+    }
+    return await response.text();
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('GitHub raw content request timed out');
+    }
+    if (error instanceof TypeError) {
+      throw new Error('Unable to access GitHub raw content. Grant raw.githubusercontent.com access and confirm the network is available.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-  return decodeBase64Utf8(content.content);
 }
 
 async function fetchGitHubJson<T>(path: string): Promise<T> {
@@ -778,6 +787,9 @@ async function fetchGitHubJson<T>(path: string): Promise<T> {
     });
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
+      if ((response.status === 403 || response.status === 429) && /rate limit/i.test(detail)) {
+        throw new Error('GitHub API rate limit exceeded while reading repository metadata. Wait for the GitHub rate-limit window to reset, then retry.');
+      }
       throw new Error(`GitHub 请求失败 (HTTP ${response.status})${detail ? `: ${detail.slice(0, 180)}` : ''}`);
     }
     return await response.json() as T;
@@ -799,13 +811,14 @@ function isGitHubHttpStatus(error: unknown, status: number): boolean {
   return message.includes(`HTTP ${status}`);
 }
 
-function decodeBase64Utf8(value: string): string {
-  const binary = atob(value.replace(/\s/g, ''));
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return new TextDecoder().decode(bytes);
+function createGitHubRawUrl(owner: string, repo: string, ref: string, path: string): string {
+  return [
+    GITHUB_RAW_BASE,
+    encodeURIComponent(owner),
+    encodeURIComponent(repo),
+    encodeURIComponent(ref),
+    ...path.split('/').map(encodeURIComponent),
+  ].join('/');
 }
 
 function isTextResource(path: string): boolean {
